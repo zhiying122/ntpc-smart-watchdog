@@ -28,8 +28,8 @@ def score_financial(row):
     """
     財務異常分(0-100)：四層鑑識會計方法疊合，全部可解釋。
     可解釋組成：
-      班佛定律 30% + Beneish改良版 25% + Isolation Forest 25%
-      + 收支比離群 10% + 跨年度突變 10%
+      班佛定律 25% + Beneish改良版 20% + Isolation Forest 25%
+      + 收支比離群 10% + 跨年度突變 10% + 賸餘短絀率 10%
     多層方法互相佐證：多個方法同時指向的園，風險最高。
     """
     benford = row.get("benford_score", 0) or 0
@@ -43,9 +43,16 @@ def score_financial(row):
         ratio_pts = min((ratio - 1) * 500, 100)  # 超支20%即滿分
     yoy = row.get("expense_yoy_pct")
     yoy_pts = min(abs(yoy) * 2, 100) if yoy is not None else 0
+    # 賸餘短絀率：本期短絀占收入比，短絀越大代表基金被侵蝕，是重要財務警訊
+    deficit_pts = 0
+    surplus = row.get("surplus")
+    income = row.get("income_actual")
+    if pd.notna(surplus) and pd.notna(income) and income and surplus < 0:
+        deficit_ratio = abs(surplus) / income
+        deficit_pts = min(deficit_ratio * 1000, 100)  # 短絀達收入10%即滿分
 
-    score = (0.30 * benford + 0.25 * beneish + 0.25 * iforest
-             + 0.10 * ratio_pts + 0.10 * yoy_pts)
+    score = (0.25 * benford + 0.20 * beneish + 0.25 * iforest
+             + 0.10 * ratio_pts + 0.10 * yoy_pts + 0.10 * deficit_pts)
     return round(min(score, 100), 1)
 
 
@@ -137,9 +144,11 @@ def main():
     # 輸出契約檔（給組員）
     cols = ["park_id", "park_name", "park_type", "year",
             "lat", "lng",
-            "income_actual", "expense_actual", "tuition_actual",
+            "income_actual", "expense_actual", "tuition_actual", "surplus",
             "expense_income_ratio", "benford_mad", "benford_sample_n", "benford_score",
-            "beneish_score", "beneish_egdi", "iforest_score", "iforest_explain",
+            "benford_chi2", "benford_pvalue", "benford_significant",
+            "beneish_score", "beneish_egdi", "beneish_tata",
+            "iforest_score", "iforest_explain",
             "expense_yoy_pct", "penalty_count", "eval_grade",
             "score_financial", "score_penalty", "score_eval", "score_sentiment",
             "risk_total", "risk_level"]

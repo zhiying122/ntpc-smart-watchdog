@@ -130,6 +130,21 @@
   來源：https://www.redalyc.org/jatsRepo/1230/123056181002/index.html
 - Durtschi, Hillison & Pacini (2004), *The Effective Use of Benford's Law to Assist in Detecting Fraud in Accounting Data*, Journal of Forensic Accounting — 班佛數位分析的實務標準與統計檢定方法。
 
+**重要學理修正——卡方檢定的大樣本問題（誠實揭露，評審問答關鍵）**：
+我們的每園明細金額達 200+ 筆，此時卡方檢定會出現「大樣本過度敏感 (excess power / large-n problem)」：
+即使極小的、實務上無意義的偏離也會被判為統計顯著。文獻明確指出：
+- 「對於非常大的樣本 (N > 1000)，所有現有統計檢定對班佛定律都不適用」
+  (Cerqueti & Maggi 等, *Testing Benford's Law from small to very large data sets*)。
+  來源：https://www.ine.es/art/sjs/sjs_2022_01_03.pdf
+- 卡方、MAD、KS 皆有「對樣本量敏感」的限制 (Cano-Rodríguez, *Equivalent Contamination Proportion*, 2025)。
+  來源：https://arxiv.org/pdf/2506.09915v1
+
+**我們的因應（專業做法）**：
+1. **主要判斷用 MAD 及其組內相對排名**（Nigrini 2012 推薦；MAD 不隨樣本量膨脹而失真）。
+2. **卡方 p-value 僅作輔助參考**，並在報告明確標註「大樣本下偏敏感，不可單獨解讀為造假」。
+3. 這是誠實且符合最新文獻的處理——我們不會宣稱「88% 幼兒園造假」，
+   而是用相對排名指出「哪些園相對最異常、值得優先查」。
+
 ---
 
 ## 模型驗證方法：AUC-ROC、Precision/Recall（風險模型標準）

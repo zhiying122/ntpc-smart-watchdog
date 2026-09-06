@@ -80,16 +80,17 @@ def extract_one_page(text):
             ints = _first_amount_after(ln, "教學收入")
             if ints:
                 rec["tuition_actual"] = _num(ints[1]) if len(ints) > 1 else _num(ints[0])
-        # 期末基金餘額
+        # 期末基金餘額：格式為「預算數 決算數 增減 % 上年度」，取第2個(決算數)
         elif ln.strip().startswith("期末基金餘額"):
             ints = _first_amount_after(ln, "期末基金餘額")
             if ints:
-                rec["fund_balance_end"] = _num(ints[0])
-        # 本期賸餘(短絀)
+                # 這行無 % 欄位間隔：ints[0]=預算數, ints[1]=決算數
+                rec["fund_balance_end"] = _num(ints[1]) if len(ints) > 1 else _num(ints[0])
+        # 本期賸餘(短絀)：格式「預算數 決算數 增減 % 上年度」，取第2個(決算數)
         elif "本期賸餘" in ln:
             ints = _first_amount_after(ln, ")")
             if ints:
-                rec["surplus"] = _num(ints[0])
+                rec["surplus"] = _num(ints[1]) if len(ints) > 1 else _num(ints[0])
 
     return rec
 
