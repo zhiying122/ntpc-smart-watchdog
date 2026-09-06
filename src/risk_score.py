@@ -17,10 +17,10 @@ PROC = os.path.join(ROOT, "data", "processed")
 
 # ---------- 分項權重（可調，簡報時秀這張）----------
 WEIGHTS = {
-    "financial": 0.40,   # 財務異常（鑑識會計三招）
+    "financial": 0.45,   # 財務異常（四層鑑識會計，資料最完整可靠）
     "penalty": 0.30,     # 裁罰紀錄
     "eval": 0.15,        # 評鑑結果
-    "sentiment": 0.15,   # 輿情負面度
+    "sentiment": 0.10,   # 輿情負面度（資料源尚未接入，暫降權重避免稀釋）
 }
 
 
@@ -80,12 +80,31 @@ def score_sentiment(neg_ratio):
     return round(min(float(neg_ratio) * 100, 100), 1)
 
 
-def risk_level(total):
+def risk_level_absolute(total):
+    """絕對門檻分級（保留備用）：≥60高, ≥35中, 其餘低。"""
     if total >= 60:
         return "高"
     if total >= 35:
         return "中"
     return "低"
+
+
+def risk_level_percentile(series):
+    """
+    百分位相對分級（主用）：以全體同儕分布做相對風險等級。
+    前 15% = 高風險（最需優先稽查）、次 35% = 中風險、其餘 = 低風險。
+    學理：同儕比較 (peer benchmarking) + 百分位分級，適合「排序稽查優先序」的目的，
+    不宣稱絕對造假門檻。文獻見 docs/methodology.md 同儕比較段落。
+    """
+    ranks = series.rank(pct=True)  # 0~1，越大分數越高
+
+    def level(r):
+        if r >= 0.85:
+            return "高"
+        if r >= 0.50:
+            return "中"
+        return "低"
+    return ranks.apply(level)
 
 
 EXTERNAL = os.path.join(ROOT, "data", "external")
@@ -131,7 +150,10 @@ def build(df):
         + WEIGHTS["eval"] * df["score_eval"]
         + WEIGHTS["sentiment"] * df["score_sentiment"]
     ).round(1)
-    df["risk_level"] = df["risk_total"].apply(risk_level)
+    # 主用百分位相對分級（確保有高風險園、符合「稽查優先序」目的）
+    df["risk_level"] = risk_level_percentile(df["risk_total"])
+    # 同時保留絕對門檻分級供對照
+    df["risk_level_abs"] = df["risk_total"].apply(risk_level_absolute)
 
     return df.sort_values("risk_total", ascending=False)
 
@@ -151,7 +173,7 @@ def main():
             "iforest_score", "iforest_explain",
             "expense_yoy_pct", "penalty_count", "eval_grade",
             "score_financial", "score_penalty", "score_eval", "score_sentiment",
-            "risk_total", "risk_level"]
+            "risk_total", "risk_level", "risk_level_abs"]
     cols = [c for c in cols if c in out.columns]
     out_path = os.path.join(PROC, "kindergartens.csv")
     out[cols].to_csv(out_path, index=False, encoding="utf-8-sig")
