@@ -1,0 +1,113 @@
+# ==========================================================
+# 機密憑證 - 絕對不能上傳到 GitHub！
+# ==========================================================
+# 環境變數檔（AWS 金鑰、API Token、資料庫密碼放這裡）
+.env
+.env.*
+!.env.example
+*.env
+
+# AWS 憑證
+.aws/
+aws.json
+credentials
+*credentials*
+*.pem
+*.key
+*_accessKeys.csv
+*accessKeys*
+
+# 各種金鑰與 Token
+*.secret
+secrets.*
+*api_key*
+*apikey*
+*token*
+config.local.*
+
+# ==========================================================
+# Python
+# ==========================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虛擬環境
+venv/
+env/
+ENV/
+.venv/
+env.bak/
+venv.bak/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# ==========================================================
+# Node.js / 前端（如果之後做 Web 儀表板）
+# ==========================================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+dist/
+.next/
+.nuxt/
+.cache/
+build/
+
+# ==========================================================
+# 資料集（原始檔太大，且可能含個資，不上傳）
+# ==========================================================
+# 比賽提供的原始資料集資料夾
+E_教育局-資料集/
+E_教育局-命題文件/
+data/raw/
+data/interim/
+*.pdf
+!docs/**/*.pdf
+
+# 產生的中間檔（可重新產生，不需版控）
+data/processed/*.csv
+data/processed/*.parquet
+*.sqlite
+*.db
+
+# ==========================================================
+# 開發工具與系統檔
+# ==========================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 記錄檔
+*.log
+logs/
+
+# 測試與覆蓋率
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
