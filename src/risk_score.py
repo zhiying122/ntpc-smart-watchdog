@@ -146,7 +146,16 @@ def main():
     cols = [c for c in cols if c in out.columns]
     out_path = os.path.join(PROC, "kindergartens.csv")
     out[cols].to_csv(out_path, index=False, encoding="utf-8-sig")
-    print(f"[OK] 風險評分完成，已寫入 {out_path}")
+    print(f"[OK] 風險評分完成（完整多年度）已寫入 {out_path}")
+
+    # ---------- 給組員的「最新年度快照」：每園一列，供排名表與地圖直接用 ----------
+    latest = (out.sort_values("year", ascending=False)
+                 .drop_duplicates("park_name", keep="first")
+                 .sort_values("risk_total", ascending=False))
+    snap_path = os.path.join(PROC, "kindergartens_latest.csv")
+    latest[cols].to_csv(snap_path, index=False, encoding="utf-8-sig")
+    n_geo = latest["lat"].notna().sum() if "lat" in latest.columns else 0
+    print(f"[OK] 最新年度快照（每園一列，{len(latest)}間，{n_geo}間有座標）已寫入 {snap_path}")
     print()
     print(out[["park_name", "risk_total", "risk_level", "score_financial",
                "benford_mad", "expense_income_ratio"]].head(10).to_string(index=False))
