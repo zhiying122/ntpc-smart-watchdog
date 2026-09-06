@@ -1,11 +1,13 @@
 """
-鑑識會計三招（風險引擎核心 / 隊長護城河）
+鑑識會計四層方法（風險引擎核心 / 隊長護城河）
 ================================================
-招式一：班佛定律 (Benford's Law) —— 抓數字造假傾向
-招式二：財務比率交叉勾稽 —— 抓離群異常
-招式三：跨年度趨勢突變 —— 抓暴增暴減
+第一層：班佛定律 (Benford's Law) —— 抓數字造假傾向
+第二層：Beneish M-Score 改良版 —— 抓盈餘/收支操縱（費用與收入背離）
+第三層：財務比率交叉勾稽 + IQR 離群 —— 抓統計離群異常
+第四層：Isolation Forest + SHAP —— 抓多維異常並保持可解釋
 
-所有方法都「可解釋」：每個指標都有清楚定義與門檻，能對評審講清楚。
+所有方法都「可解釋」：每個指標都有清楚定義、門檻或可解釋輸出，能對評審講清楚。
+文獻佐證見 docs/methodology.md。
 """
 import math
 
@@ -99,6 +101,94 @@ def yoy_flag(change_pct, threshold=30):
     return abs(change_pct) >= threshold
 
 
+# ---------- 第二層：Beneish M-Score 改良版（非營利園適用）----------
+# 原始 Beneish 為營利公司設計(含銷貨/應收)，幼兒園非營利無此概念。
+# 我們借鑒其核心邏輯：「費用與收入成長背離」「應計項目異常」即操縱訊號。
+# 改良指標（皆可從決算資料算出，需本年度與上年度數字）：
+def beneish_lite(row):
+    """
+    Beneish 改良版分數(0-100)。越高越可疑。
+    組成三個可解釋指數：
+      1) EGDI 收支成長背離指數：支出成長遠高於收入成長 → 可疑
+      2) SGI  收入成長指數：異常高成長(可能灌收入)
+      3) TATA 應計項目比：本期賸餘與現金基礎背離(用賸餘/收入近似)
+    """
+    inc = row.get("income_actual")
+    inc_last = row.get("income_last_year")
+    exp = row.get("expense_actual")
+    exp_last = row.get("expense_last_year")
+    surplus = row.get("surplus")
+
+    if not all(pd.notna(x) and x not in (0, None)
+               for x in [inc, inc_last, exp, exp_last]):
+        return None, {}
+
+    # 成長率
+    inc_growth = (inc - inc_last) / abs(inc_last)
+    exp_growth = (exp - exp_last) / abs(exp_last)
+
+    # 1) 收支成長背離：支出成長 - 收入成長，正值越大越可疑
+    egdi = exp_growth - inc_growth
+    # 2) 收入成長指數：SGI，異常高成長可疑（|.| 越大越可疑）
+    sgi = inc_growth
+    # 3) 應計比：賸餘占收入比，偏離 0 越大代表現金與帳面背離
+    tata = (surplus / inc) if (pd.notna(surplus) and inc) else 0.0
+
+    # 換算成 0-100 可疑分（可解釋線性映射，門檻參考鑑識實務經驗）
+    egdi_pts = min(max(egdi, 0) * 300, 100)      # 支出比收入多成長 33% 即滿分
+    sgi_pts = min(abs(sgi) * 200, 100)           # 收入劇烈變動
+    tata_pts = min(abs(tata) * 400, 100)         # 應計偏離
+
+    score = round(0.5 * egdi_pts + 0.25 * sgi_pts + 0.25 * tata_pts, 1)
+    detail = {
+        "beneish_egdi": round(egdi, 4),
+        "beneish_sgi": round(sgi, 4),
+        "beneish_tata": round(tata, 4),
+    }
+    return score, detail
+
+
+# ---------- 第四層：Isolation Forest + SHAP（多維異常，可解釋）----------
+def isolation_forest_scores(df, feature_cols):
+    """
+    對多維財務特徵跑 Isolation Forest，回傳每園 0-100 異常分（越高越異常）
+    以及每園的 SHAP 特徵歸因（解釋為什麼異常）。
+    非監督式，不需標籤，適合裁罰標籤有限的情境。
+    """
+    from sklearn.ensemble import IsolationForest
+
+    X = df[feature_cols].fillna(df[feature_cols].median(numeric_only=True)).fillna(0)
+    if len(X) < 4:
+        return [None] * len(df), [{}] * len(df)
+
+    model = IsolationForest(n_estimators=200, contamination="auto", random_state=42)
+    model.fit(X)
+    # decision_function 越小越異常 → 轉成 0-100 越大越異常
+    raw = -model.decision_function(X)
+    score = (raw - raw.min()) / (raw.max() - raw.min() + 1e-9) * 100
+
+    # SHAP 解釋（可解釋白盒子）；shap 失敗時退化為特徵 z-score 貢獻
+    explanations = []
+    try:
+        import shap
+        explainer = shap.TreeExplainer(model)
+        shap_vals = explainer.shap_values(X, check_additivity=False)
+        for i in range(len(X)):
+            contrib = {feature_cols[j]: round(float(shap_vals[i][j]), 3)
+                       for j in range(len(feature_cols))}
+            top = sorted(contrib.items(), key=lambda kv: abs(kv[1]), reverse=True)[:3]
+            explanations.append(dict(top))
+    except Exception:
+        med = X.median()
+        std = X.std().replace(0, 1)
+        for i in range(len(X)):
+            z = ((X.iloc[i] - med) / std).abs()
+            top = z.sort_values(ascending=False).head(3)
+            explanations.append({k: round(float(v), 2) for k, v in top.items()})
+
+    return [round(float(s), 1) for s in score], explanations
+
+
 # ---------- 整合：對整份資料算所有鑑識指標 ----------
 def analyze(df):
     """
@@ -144,6 +234,26 @@ def analyze(df):
         df["benford_score"] = (mad_series.rank(pct=True) * 100).round(0)
     else:
         df["benford_score"] = benford_scores
+
+    # 第二層：Beneish 改良版
+    beneish_scores, beneish_details = [], []
+    for _, r in df.iterrows():
+        s, d = beneish_lite(r)
+        beneish_scores.append(s if s is not None else 0)
+        beneish_details.append(d)
+    df["beneish_score"] = beneish_scores
+    df["beneish_egdi"] = [d.get("beneish_egdi") for d in beneish_details]
+    df["beneish_sgi"] = [d.get("beneish_sgi") for d in beneish_details]
+    df["beneish_tata"] = [d.get("beneish_tata") for d in beneish_details]
+
+    # 第四層：Isolation Forest + SHAP（多維異常）
+    iso_features = ["expense_income_ratio", "tuition_income_ratio",
+                    "expense_yoy_pct", "income_yoy_pct", "benford_mad",
+                    "beneish_score"]
+    iso_features = [c for c in iso_features if c in df.columns]
+    iso_scores, iso_expl = isolation_forest_scores(df, iso_features)
+    df["iforest_score"] = iso_scores
+    df["iforest_explain"] = [str(e) for e in iso_expl]
 
     return df
 

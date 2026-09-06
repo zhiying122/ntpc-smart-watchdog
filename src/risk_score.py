@@ -26,10 +26,15 @@ WEIGHTS = {
 
 def score_financial(row):
     """
-    財務異常分(0-100)：綜合班佛相對分、收支比離群、跨年度突變。
-    可解釋組成：班佛50% + 收支離群30% + 年度突變20%
+    財務異常分(0-100)：四層鑑識會計方法疊合，全部可解釋。
+    可解釋組成：
+      班佛定律 30% + Beneish改良版 25% + Isolation Forest 25%
+      + 收支比離群 10% + 跨年度突變 10%
+    多層方法互相佐證：多個方法同時指向的園，風險最高。
     """
     benford = row.get("benford_score", 0) or 0
+    beneish = row.get("beneish_score", 0) or 0
+    iforest = row.get("iforest_score", 0) or 0
     outlier = 100 if row.get("outlier_expense_ratio") else 0
     # 收支比 >1 (入不敷出) 加權：超過越多分越高
     ratio = row.get("expense_income_ratio")
@@ -39,7 +44,8 @@ def score_financial(row):
     yoy = row.get("expense_yoy_pct")
     yoy_pts = min(abs(yoy) * 2, 100) if yoy is not None else 0
 
-    score = 0.5 * benford + 0.2 * outlier + 0.15 * ratio_pts + 0.15 * yoy_pts
+    score = (0.30 * benford + 0.25 * beneish + 0.25 * iforest
+             + 0.10 * ratio_pts + 0.10 * yoy_pts)
     return round(min(score, 100), 1)
 
 
@@ -111,7 +117,8 @@ def main():
     # 輸出契約檔（給組員）
     cols = ["park_id", "park_name", "park_type", "year",
             "income_actual", "expense_actual", "tuition_actual",
-            "expense_income_ratio", "benford_mad", "benford_sample_n",
+            "expense_income_ratio", "benford_mad", "benford_sample_n", "benford_score",
+            "beneish_score", "beneish_egdi", "iforest_score", "iforest_explain",
             "expense_yoy_pct", "penalty_count", "eval_grade",
             "score_financial", "score_penalty", "score_eval", "score_sentiment",
             "risk_total", "risk_level"]

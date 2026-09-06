@@ -1,0 +1,104 @@
+# 鑑識會計與異常偵測方法論（含論文佐證）
+
+本文件整理本專案風險引擎採用的方法及其學術/實務依據，供簡報與評審問答使用。
+核心主張：我們不是「把資料丟給 AI 算分數」，而是採用**審計與鑑識會計界公認的方法**，
+每個方法都有文獻支撐、可解釋、可對評審交代。
+
+---
+
+## 方法一：班佛定律 (Benford's Law) — 數字造假偵測
+
+**原理**：自然產生的財務數字，首位數為 1 的機率約 30.1%、2 約 17.6%……呈對數遞減。
+人為捏造的數字通常偏離此分布。用 MAD（平均絕對偏差）量化偏離程度。
+
+**關鍵正確用法（本專案的專業判斷）**：班佛定律要用在**跨數量級的逐筆明細金額**
+（採購、修繕、各項費用等，從數百到數百萬），不能用在同數量級的彙總數字
+（否則會系統性誤判）。本專案對每園蒐集 200+ 筆明細金額後才做檢定。
+
+**文獻佐證**：
+- Nigrini, M. J. — 班佛定律應用於會計與稅務資料偵測舞弊的實務標準（MAD 門檻來源）。
+- Gabrielli & Medioli (2019), *An Overview of Instruments and Tools to Detect Fraudulent Financial Statements*, Universal Journal of Accounting and Finance — 指出舞弊偵測結合 Benford's Law 與 Beneish Model 為主流工具。
+  來源：https://www.hrpub.org/download/20190930/UJAF2-12213511.pdf
+- Grammatikos & Papanikolaou (2021), *Applying Benford's Law to Detect Accounting Data Manipulation in the Banking Industry*, Journal of Financial Services Research — 實證銀行以此操縱財報。
+  來源：https://link.springer.com/doi/10.1007/s10693-020-00334-9
+
+---
+
+## 方法二：Beneish M-Score — 盈餘操縱偵測（強烈建議加入）
+
+**原理**：由 Messod Beneish 提出，用連續兩年財報算出 8 個財務比率指數，
+組合成單一 M-Score。分數高於門檻 (約 -2.22) 代表可能操縱盈餘。
+這是鑑識會計界最著名的量化模型之一（曾被用來事前識破 Enron）。
+
+**8 個變數（都可從財報算出）**：
+1. DSRI 應收帳款銷貨指數
+2. GMI 毛利率指數
+3. AQI 資產品質指數
+4. SGI 銷貨成長指數
+5. DEPI 折舊指數
+6. SGAI 銷管費用指數
+7. LVGI 財務槓桿指數
+8. TATA 應計項目對總資產比
+
+**用於幼兒園的調整**：幼兒園非營利、無銷貨概念，需改良為適用版本
+（例如用「收入成長 vs 費用成長背離」「餘絀與撥款背離」「應計項目異常」等類比指標）。
+簡報可講「我們借鑒 Beneish M-Score 的核心邏輯——費用與收入背離即異常訊號」。
+
+**文獻佐證**：
+- Beneish, M. D. (1999), *The Detection of Earnings Manipulation*, Financial Analysts Journal — 原始論文，測試樣本可識別約半數後來爆發的操縱案。
+- 準確度：原模型可正確辨識 38%–76% 的舞弊公司，誤報率 3.5%–17.5%。
+  來源：https://bpb-us-w2.wpmucdn.com/u.osu.edu/dist/3/40936/files/2016/12/M-Score-pa6gdy.pdf
+
+---
+
+## 方法三：財務比率交叉勾稽 + IQR 離群偵測
+
+**原理**：計算每園單位成本、人事費占比、收支比等，用四分位距 (IQR) 法
+標記統計離群值。可解釋、無需訓練資料。
+
+**用於本專案**：命題痛點第 2 點明確要求「財報與收費、幼兒人數交叉分析」，
+此法直接命中。
+
+---
+
+## 方法四：Isolation Forest（孤立森林）+ SHAP 可解釋性 — 進階亮點
+
+**原理**：Isolation Forest 是非監督式異常偵測演算法，異常點因「容易被隨機切割孤立」
+而有較短路徑長度，得到異常分數。適合我們「沒有大量標籤」的情境。
+搭配 SHAP 可解釋出「這間園為什麼被判為異常」，維持白盒子精神。
+
+**為什麼加這個**：
+- 是內部審計界公認的「抽樣選案」工具（大型顧問公司 Protiviti 白皮書專章介紹）。
+- 非監督式，不需要大量已知舞弊標籤（我們裁罰標籤數量有限，正好適用）。
+- 加上 SHAP 後仍可解釋，符合「政府敢用」的白盒子要求。
+
+**文獻佐證**：
+- Protiviti 白皮書 *Internal Audit Applications of Machine Learning: Sample Selection* — 詳述 Isolation Forest 定義異常分數並用於審計選案。
+  來源：https://www.protiviti.com/sites/default/files/2023-04/whitepaper_internal_audit_applications_of_machine_learning.pdf
+- arXiv 2607.13469, *Explainable AI for Anomaly Detection in Banking Transactions: An Internal Audit Perspective* — Isolation Forest + SHAP 提供可解釋、審計人員無需 ML 背景即可用的異常偵測。
+  來源：https://arxiv.org/abs/2607.13469
+
+---
+
+## 方法五：跨年度趨勢突變偵測
+
+**原理**：同園跨年度收入/支出/餘絀變動幅度，超過門檻 (±30%) 標記突變。
+呼應 Beneish 的核心洞見：費用與收入成長背離是操縱訊號。
+
+---
+
+## 我們的方法論組合（簡報講法）
+
+> 「我們的風險分數不是黑盒子，而是疊合了**四層審計界公認的方法**：
+> 班佛定律抓數字造假、借鑒 Beneish M-Score 抓盈餘操縱、財務比率勾稽抓離群、
+> Isolation Forest + SHAP 抓多維異常並保持可解釋。每一層都有文獻支撐，
+> 稽查員拿到分數能對長官交代『為什麼查這間』。」
+
+這套組合的差異化：**多數隊伍只會做一般統計或直接丟 AI；
+我們用的是鑑識會計與內部審計的專業武器庫，且全部可解釋。**
+
+---
+
+## 內容合規註記
+以上文獻資訊經改寫整理，非逐字引用，用於學術方法佐證。各來源連結已附於各段落。
+Content was rephrased for compliance with licensing restrictions.
