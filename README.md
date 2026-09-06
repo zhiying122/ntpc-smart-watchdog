@@ -39,7 +39,7 @@ AI × 鑑識會計，打造教保機構智慧風險預警管理系統。整合�
 ## 專案概況
 
 <!-- AUTO-STRUCTURE:START -->
-> 本區塊由 `scripts/update_readme.py` 自動維護，最後更新：2026-09-06 22:54 (UTC+8)
+> 本區塊由 `scripts/update_readme.py` 自動維護，最後更新：2026-09-06 23:02 (UTC+8)
 
 ### 專案結構
 ```

@@ -54,12 +54,20 @@ def _save_cache(cache):
         json.dump(cache, f, ensure_ascii=False, indent=2)
 
 
-def geocode_one(address, cache):
-    """單一地址轉座標，優先讀快取。回傳 (lat, lng) 或 None。"""
-    if address in cache:
-        return tuple(cache[address]) if cache[address] else None
+# 新北市地理邊界（收緊，貼合實際轄區）：緯度 24.6~25.35，經度 121.28~121.75
+# 收緊經度上限可濾掉誤匹配到宜蘭/東部的同名 POI
+NTPC_BOUNDS = (24.6, 25.35, 121.28, 121.75)
+
+
+def _in_ntpc(lat, lng):
+    la0, la1, lo0, lo1 = NTPC_BOUNDS
+    return la0 <= lat <= la1 and lo0 <= lng <= lo1
+
+
+def _query(q):
+    """對 Nominatim 送一次查詢，回傳 (lat,lng) 或 None。"""
     params = urllib.parse.urlencode({
-        "q": address, "format": "json", "limit": 1, "countrycodes": "tw",
+        "q": q, "format": "json", "limit": 1, "countrycodes": "tw",
     })
     url = f"{NOMINATIM}?{params}"
     try:
@@ -68,12 +76,39 @@ def geocode_one(address, cache):
             data = json.loads(resp.read().decode())
         if data:
             lat, lng = float(data[0]["lat"]), float(data[0]["lon"])
-            cache[address] = [lat, lng]
-            return lat, lng
+            # 邊界檢查：超出新北市範圍視為誤匹配，捨棄
+            if _in_ntpc(lat, lng):
+                return lat, lng
     except Exception as e:
-        print(f"    [!] 查詢失敗 {address}: {e}")
-    cache[address] = None
+        print(f"    [!] 查詢失敗 {q}: {e}")
     return None
+
+
+def geocode_one(address, cache, name="", district=""):
+    """
+    多層查詢策略（由精確到粗略）：
+      1) 園所名稱（OSM 常收錄學校/幼兒園 POI）
+      2) 完整地址
+      3) 行政區 + 幼兒園關鍵字
+    優先讀快取。回傳 (lat, lng) 或 None。
+    """
+    key = f"{name}|{address}"
+    if key in cache:
+        return tuple(cache[key]) if cache[key] else None
+
+    coord = None
+    if name:
+        coord = _query(name)
+        time.sleep(1.1)
+    if coord is None and address:
+        coord = _query(address)
+        time.sleep(1.1)
+    if coord is None and district:
+        coord = _query(f"新北市{district} 幼兒園")
+        time.sleep(1.1)
+
+    cache[key] = list(coord) if coord else None
+    return coord
 
 
 def run(online=True):
@@ -88,8 +123,7 @@ def run(online=True):
         district = r.get("district", "")
         coord = None
         if online:
-            coord = geocode_one(addr, cache)
-            time.sleep(1.1)  # 遵守 Nominatim 每秒 1 次規範
+            coord = geocode_one(addr, cache, name=name, district=district)
         if coord is None:
             # fallback：用行政區中心
             coord = DISTRICT_CENTER.get(district)
