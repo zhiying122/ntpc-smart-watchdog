@@ -154,15 +154,20 @@ def extract_pdf(pdf_path, year):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("pdf", help="決算書第5冊 PDF 路徑")
-    ap.add_argument("--year", required=True, help="年度，如 114")
+    ap.add_argument("--add", nargs=2, action="append", metavar=("YEAR", "PDF"),
+                    required=True, help="可重複：--add 114 路徑 --add 113 路徑")
     ap.add_argument("--out", default=os.path.join(OUT_DIR, "financials.csv"))
     args = ap.parse_args()
 
     os.makedirs(OUT_DIR, exist_ok=True)
-    records = extract_pdf(args.pdf, args.year)
 
-    if not records:
+    all_records = []
+    for year, path in args.add:
+        recs = extract_pdf(path, year.strip())
+        print(f"  年度 {year}: 抽出 {len(recs)} 間")
+        all_records.extend(recs)
+
+    if not all_records:
         print("[!] 沒有抽到任何幼兒園資料，請確認 PDF 路徑與內容。")
         return
 
@@ -175,13 +180,10 @@ def main():
     with open(args.out, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         w.writeheader()
-        for r in records:
+        for r in all_records:
             w.writerow(r)
 
-    print(f"[OK] 抽出 {len(records)} 間幼兒園，已寫入 {args.out}")
-    # 印前 5 筆預覽
-    for r in records[:5]:
-        print(f"  {r['park_name']}: 收入={r.get('income_actual')} 支出={r.get('expense_actual')} 學雜費={r.get('tuition_actual')}")
+    print(f"[OK] 共抽出 {len(all_records)} 筆（跨年度），已寫入 {args.out}")
 
 
 if __name__ == "__main__":

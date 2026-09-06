@@ -39,21 +39,28 @@ AI × 鑑識會計，打造教保機構智慧風險預警管理系統。整合�
 ## 專案概況
 
 <!-- AUTO-STRUCTURE:START -->
-> 本區塊由 `scripts/update_readme.py` 自動維護，最後更新：2026-09-06 22:42 (UTC+8)
+> 本區塊由 `scripts/update_readme.py` 自動維護，最後更新：2026-09-06 22:54 (UTC+8)
 
 ### 專案結構
 ```
 ntpc-smart-watchdog/
 ├── data/
+│   ├── external/
+│   │   ├── addresses.csv
+│   │   └── penalties.csv
 │   └── processed/
 │       ├── financials.csv
 │       ├── financials_112.csv
 │       ├── financials_113.csv
+│       ├── geocode_cache.json
+│       ├── geocoded.csv
 │       └── kindergartens.csv
 ├── docs/
 │   ├── methodology.md
 │   ├── ocr-plan.md
 │   └── team-plan.md
+├── reports/
+│   └── validation.png
 ├── scripts/
 │   ├── check_secrets.py
 │   └── update_readme.py
@@ -61,17 +68,21 @@ ntpc-smart-watchdog/
 │   ├── __init__.py
 │   ├── extract_public.py
 │   ├── forensic.py
+│   ├── geocode.py
 │   ├── ocr_nonprofit.py
-│   └── risk_score.py
+│   ├── risk_score.py
+│   └── validate.py
 ├── README.md
 └── requirements.txt
 ```
 
 ### 檔案統計
-- `.py`：7 個
+- `.py`：9 個
+- `.csv`：7 個
 - `.md`：4 個
-- `.csv`：4 個
 - `.example`：1 個
 - `(無副檔名)`：1 個
 - `.txt`：1 個
+- `.json`：1 個
+- `.png`：1 個
 <!-- AUTO-STRUCTURE:END -->

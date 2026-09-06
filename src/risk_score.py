@@ -81,11 +81,31 @@ def risk_level(total):
     return "低"
 
 
+EXTERNAL = os.path.join(ROOT, "data", "external")
+
+
+def _merge_external(df):
+    """併入裁罰/評鑑、地址座標等外部資料（若檔案存在）。"""
+    # 裁罰與評鑑
+    pen_path = os.path.join(EXTERNAL, "penalties.csv")
+    if os.path.exists(pen_path):
+        pen = pd.read_csv(pen_path).drop_duplicates("park_name", keep="first")
+        df = df.merge(pen[["park_name", "penalty_count", "eval_grade"]],
+                      on="park_name", how="left")
+    # 座標
+    geo_path = os.path.join(ROOT, "data", "processed", "geocoded.csv")
+    if os.path.exists(geo_path):
+        geo = pd.read_csv(geo_path).drop_duplicates("park_name", keep="first")
+        df = df.merge(geo[["park_name", "lat", "lng"]], on="park_name", how="left")
+    return df
+
+
 def build(df):
     """輸入 financials.csv，輸出完整風險評分 DataFrame。"""
     df = analyze(df)  # 先算鑑識會計指標
+    df = _merge_external(df)  # 併入裁罰/評鑑/座標
 
-    # 若沒有裁罰/評鑑/輿情欄位，先給預設（隊長之後補真實資料）
+    # 若沒有裁罰/評鑑/輿情欄位，先給預設
     if "penalty_count" not in df.columns:
         df["penalty_count"] = 0
     if "eval_grade" not in df.columns:
@@ -116,12 +136,14 @@ def main():
 
     # 輸出契約檔（給組員）
     cols = ["park_id", "park_name", "park_type", "year",
+            "lat", "lng",
             "income_actual", "expense_actual", "tuition_actual",
             "expense_income_ratio", "benford_mad", "benford_sample_n", "benford_score",
             "beneish_score", "beneish_egdi", "iforest_score", "iforest_explain",
             "expense_yoy_pct", "penalty_count", "eval_grade",
             "score_financial", "score_penalty", "score_eval", "score_sentiment",
             "risk_total", "risk_level"]
+    cols = [c for c in cols if c in out.columns]
     out_path = os.path.join(PROC, "kindergartens.csv")
     out[cols].to_csv(out_path, index=False, encoding="utf-8-sig")
     print(f"[OK] 風險評分完成，已寫入 {out_path}")

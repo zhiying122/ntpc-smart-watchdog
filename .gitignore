@@ -88,6 +88,7 @@ data/interim/
 # 產生的中間檔（可重新產生，不需版控）
 data/processed/*.csv
 data/processed/*.parquet
+data/processed/*.json
 *.sqlite
 *.db
 
