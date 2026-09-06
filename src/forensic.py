@@ -61,6 +61,30 @@ def benford_conformity(mad):
     return "不吻合(可疑)", 90
 
 
+def benford_chi_square(numbers, min_n=30):
+    """
+    班佛定律卡方適合度檢定（統計顯著性）。
+    補強 MAD 的不足：MAD 只給偏離程度，卡方給出「偏離是否統計顯著」。
+    自由度 = 8（9個首位數 - 1）；卡方臨界值 α=0.05 為 15.507。
+    回傳 (chi2, p_value, 是否顯著偏離)。
+    文獻：政府支出班佛檢定常用 Z 檢定與卡方檢定 (Durtschi et al., 2004)。
+    """
+    from scipy import stats as _stats
+
+    digits = [first_digit(x) for x in numbers if x is not None and abs(x) > 0]
+    digits = [d for d in digits if d]
+    n = len(digits)
+    if n < min_n:
+        return None, None, None
+
+    observed_counts = [digits.count(d) for d in range(1, 10)]
+    expected_counts = [BENFORD_EXPECTED[d] * n for d in range(1, 10)]
+    chi2 = sum((o - e) ** 2 / e for o, e in zip(observed_counts, expected_counts))
+    p_value = 1 - _stats.chi2.cdf(chi2, df=8)
+    significant = chi2 > 15.507  # α=0.05, df=8
+    return round(chi2, 3), round(p_value, 5), significant
+
+
 # ---------- 招式二：財務比率交叉勾稽 ----------
 def compute_ratios(row):
     """算三個關鍵財務比率。"""
@@ -211,7 +235,9 @@ def analyze(df):
     )
 
     # 招式一：班佛定律（正確做法：用逐筆明細金額，跨數量級才有效）
+    # 補強：同時算 MAD(偏離程度) 與卡方檢定(統計顯著性)
     mads, levels, benford_scores, ns = [], [], [], []
+    chi2s, pvals, sigs = [], [], []
     for _, r in df.iterrows():
         raw = r.get("detail_amounts")
         nums = []
@@ -219,13 +245,20 @@ def analyze(df):
             nums = [int(x) for x in raw.split(";") if x.strip().isdigit()]
         mad, _, n = benford_mad(nums, min_n=30)
         level, score = benford_conformity(mad)
+        chi2, pval, sig = benford_chi_square(nums, min_n=30)
         mads.append(mad)
         levels.append(level)
         benford_scores.append(score)
         ns.append(n)
+        chi2s.append(chi2)
+        pvals.append(pval)
+        sigs.append(sig)
     df["benford_mad"] = mads
     df["benford_level"] = levels
     df["benford_sample_n"] = ns
+    df["benford_chi2"] = chi2s
+    df["benford_pvalue"] = pvals
+    df["benford_significant"] = sigs
 
     # 班佛分數改用「組內相對排名」百分位（更公允、可解釋）：
     # MAD 越高在組內越可疑，換算成 0-100 的相對風險分。

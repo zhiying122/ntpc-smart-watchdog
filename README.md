@@ -39,7 +39,7 @@ AI × 鑑識會計，打造教保機構智慧風險預警管理系統。整合�
 ## 專案概況
 
 <!-- AUTO-STRUCTURE:START -->
-> 本區塊由 `scripts/update_readme.py` 自動維護，最後更新：2026-09-06 23:02 (UTC+8)
+> 本區塊由 `scripts/update_readme.py` 自動維護，最後更新：2026-09-06 23:07 (UTC+8)
 
 ### 專案結構
 ```
@@ -71,13 +71,14 @@ ntpc-smart-watchdog/
 │   ├── geocode.py
 │   ├── ocr_nonprofit.py
 │   ├── risk_score.py
+│   ├── sensitivity.py
 │   └── validate.py
 ├── README.md
 └── requirements.txt
 ```
 
 ### 檔案統計
-- `.py`：9 個
+- `.py`：10 個
 - `.csv`：7 個
 - `.md`：4 個
 - `.example`：1 個

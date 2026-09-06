@@ -44,6 +44,30 @@ def main():
     corr = df["risk_total"].corr(df["penalty_count"].fillna(0))
     print(f"風險分數與裁罰次數的相關係數 = {corr:.3f}")
 
+    # ---------- 分類效能指標（風險模型標準驗證）----------
+    # 以「是否被裁罰」為真實標籤，風險分為預測分數，評估模型辨識能力
+    auc = precision = recall = f1 = None
+    try:
+        from sklearn.metrics import roc_auc_score, precision_recall_fscore_support
+        y_true = df["has_penalty"].astype(int).values
+        y_score = df["risk_total"].values
+        if len(set(y_true)) == 2:  # 需同時有正負樣本
+            auc = roc_auc_score(y_true, y_score)
+            # 以風險分中位數為門檻做二分類，算 Precision/Recall
+            import numpy as np
+            thr = np.median(y_score)
+            y_pred = (y_score >= thr).astype(int)
+            precision, recall, f1, _ = precision_recall_fscore_support(
+                y_true, y_pred, average="binary", zero_division=0)
+            print("-" * 50)
+            print("分類效能（以『是否被裁罰』為真實標籤）：")
+            print(f"  AUC-ROC = {auc:.3f}（0.5=隨機, 1.0=完美, >0.7 為良好）")
+            print(f"  Precision(精確率) = {precision:.3f}")
+            print(f"  Recall(召回率)   = {recall:.3f}")
+            print(f"  F1-score         = {f1:.3f}")
+    except Exception as e:
+        print(f"  [!] 分類指標計算略過：{e}")
+
     # ---------- 繪圖 ----------
     os.makedirs(REPORT_DIR, exist_ok=True)
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))

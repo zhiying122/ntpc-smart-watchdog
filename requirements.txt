@@ -7,6 +7,10 @@ numpy>=1.24.0
 scikit-learn>=1.3.0
 shap>=0.44.0
 
+# 統計檢定(班佛卡方) 與 驗證圖表
+scipy>=1.10.0
+matplotlib>=3.7.0
+
 # OCR（非營利園掃描財報）
 PyMuPDF>=1.24.0
 pytesseract>=0.3.10

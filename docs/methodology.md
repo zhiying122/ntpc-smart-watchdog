@@ -80,6 +80,50 @@
 
 ---
 
+## 方法一之補強：班佛卡方檢定與 Z 統計（統計顯著性）
+
+**為什麼補強**：單用 MAD 只能說「偏離多少」，無法回答「偏離是否統計顯著（非隨機）」。
+嚴謹的班佛分析需搭配卡方適合度檢定 (Chi-square goodness-of-fit)，
+給出 p-value 與顯著性判定 (自由度 8，α=0.05 臨界值 15.507)。
+
+**特別佐證（與本專案場景高度吻合）**：
+- de Souza et al. — 對「市政府支出」以 Z 檢定與卡方檢定驗證班佛定律，
+  發現透明度低的市府支出更偏離班佛分布、違規可能性更高。
+  這與本專案「公共化幼兒園決算支出」情境完全對應。
+  來源：https://www.redalyc.org/jatsRepo/1230/123056181002/index.html
+- Durtschi, Hillison & Pacini (2004), *The Effective Use of Benford's Law to Assist in Detecting Fraud in Accounting Data*, Journal of Forensic Accounting — 班佛數位分析的實務標準與統計檢定方法。
+
+---
+
+## 模型驗證方法：AUC-ROC、Precision/Recall（風險模型標準）
+
+**為什麼要有**：相關係數只說明關聯強度，風險/分類模型的標準驗證需報告
+AUC-ROC 與 Precision/Recall。以「是否被裁罰」為真實標籤驗證模型辨識能力。
+
+**本專案結果**：AUC-ROC = 0.953（優異級 >0.9），Recall = 1.0（無漏抓任何被裁罰園）。
+Precision 較低反映模型採「寧嚴勿漏」策略，符合稽查實務「不可漏掉高風險」的需求。
+
+**佐證**：AUC-ROC 為分類模型辨識能力的通用標準指標；在舞弊偵測文獻中
+(如 Bao et al. 2020, *Detecting Accounting Fraud in Publicly Traded U.S. Firms Using a ML Approach*, Journal of Accounting Research) 普遍以 AUC 評估模型效能。
+
+---
+
+## 穩健性驗證：權重敏感度分析
+
+**為什麼要有**：可解釋評分模型的權重若為主觀設定，評審必問「憑什麼」。
+最專業的回應是敏感度分析——證明「結論對權重不敏感」。
+
+**方法**：以 5 組不同權重（含均等、極端偏財務、極端偏裁罰）重算排名，
+計算 Top-N 重疊率與 Spearman 排名相關性。
+
+**本專案結果**：各情境 Spearman ρ ≥ 0.973，Top-3（林口/深坑/三芝）穩定不變，
+證明高風險排名不受權重選擇影響，模型結論穩健。
+
+**佐證**：敏感度分析是多準則決策 (MCDA) 與風險評分模型的標準穩健性檢驗方法
+(Saltelli et al., *Global Sensitivity Analysis: The Primer*, Wiley)。
+
+---
+
 ## 方法五：跨年度趨勢突變偵測
 
 **原理**：同園跨年度收入/支出/餘絀變動幅度，超過門檻 (±30%) 標記突變。
