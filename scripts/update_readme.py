@@ -75,7 +75,7 @@ def main():
     block = generate_block()
     if not os.path.exists(README):
         with open(README, "w", encoding="utf-8") as f:
-            f.write("# 小小守護員 Smart Watchdog\n\n" + block + "\n")
+            f.write("# Fiscalint\n\n" + block + "\n")
         print("[OK] README.md 不存在，已建立並寫入自動區塊。")
         return
 

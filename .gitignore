@@ -85,6 +85,15 @@ data/interim/
 *.pdf
 !docs/**/*.pdf
 
+# OCR / 拆頁工具的產出（含財報數字、可能個資，絕不上傳）
+data/derived/
+*.txt
+!requirements.txt
+!docs/**/*.txt
+
+# Tesseract 語言包（大檔，可重新下載，不進版控）
+data/tessdata/
+
 # 產生的中間檔（可重新產生，不需版控）
 data/processed/*.csv
 data/processed/*.parquet

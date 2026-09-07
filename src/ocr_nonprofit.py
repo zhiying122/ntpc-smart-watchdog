@@ -21,6 +21,27 @@ import re
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# 專案內建的 Tesseract 語言包（chi_tra/eng/osd），免管理員權限、免改系統目錄
+PROJECT_TESSDATA = os.path.join(ROOT, "data", "tessdata")
+
+# 常見的 Tesseract 安裝路徑（UB-Mannheim 版預設位置）
+_TESSERACT_CANDIDATES = [
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+]
+
+
+def _configure_tesseract():
+    """自動指向 tesseract.exe 與專案內 tessdata，回傳可用的 lang 前綴設定。"""
+    import pytesseract
+    for cand in _TESSERACT_CANDIDATES:
+        if os.path.exists(cand):
+            pytesseract.pytesseract.tesseract_cmd = cand
+            break
+    # 若專案內有語言包，優先使用（不必寫進系統 Program Files）
+    if os.path.isdir(PROJECT_TESSDATA):
+        os.environ["TESSDATA_PREFIX"] = PROJECT_TESSDATA
+
 
 def pdf_page_to_image(pdf_path, page_index, dpi=300):
     """用 PyMuPDF 把指定頁轉成 PNG bytes。"""
@@ -39,6 +60,7 @@ def ocr_tesseract(img_bytes, lang="chi_tra"):
     """本地 Tesseract OCR。需先安裝 Tesseract 引擎與中文語言包。"""
     import pytesseract
     from PIL import Image
+    _configure_tesseract()
     img = Image.open(io.BytesIO(img_bytes))
     try:
         return pytesseract.image_to_string(img, lang=lang)

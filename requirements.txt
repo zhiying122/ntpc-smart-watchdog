@@ -20,3 +20,9 @@ boto3>=1.34.0
 
 # 環境變數
 python-dotenv>=1.0.0
+
+# 前端儀表板（組員線：介面與 AI 呈現）
+streamlit>=1.31.0
+plotly>=5.18.0            # 雷達圖 / 互動圖表
+folium>=0.15.0           # Leaflet + OpenStreetMap 風險地圖
+streamlit-folium>=0.18.0 # 在 Streamlit 內嵌 folium 地圖

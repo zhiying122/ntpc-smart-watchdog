@@ -1,0 +1,17 @@
+# Fiscalint 儀表板主題（淺色專業版）
+# 設計語氣：金融監理／稽核終端機。石墨藍骨架 + 灰階，風險三色僅用於語意。
+# 這裡設定 Streamlit 原生元件的基底色，細節樣式由 app/lib/common.py 的 CSS 進一步覆蓋。
+
+[theme]
+base = "light"
+primaryColor = "#2F6DB5"            # 互動強調色（沉穩藍，非鮮豔）
+backgroundColor = "#F7F7F5"         # 背景底（極淺暖灰白）
+secondaryBackgroundColor = "#EFEFEC" # 側欄／次要區塊底
+textColor = "#26303B"               # 主要文字（深石墨）
+font = "sans serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false
