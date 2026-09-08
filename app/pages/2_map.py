@@ -27,8 +27,8 @@ df = common.require_data()
 # ---------- 篩選 ----------
 col_a, col_b = st.columns([3, 1])
 with col_b:
-    show_levels = st.multiselect("顯示風險等級", ["高", "中", "低"],
-                                 default=["高", "中", "低"])
+    show_levels = st.pills("顯示風險等級", ["高", "中", "低"],
+                           selection_mode="multi", default=["高", "中", "低"])
     show_route = st.checkbox("顯示高風險稽查建議路線", value=True,
                              help="把高風險園依風險分連成巡查路線，示範精準投放人力")
 

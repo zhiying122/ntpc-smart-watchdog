@@ -48,10 +48,13 @@ common.section("機構風險排名（完整）", "dashboard")
 f1, f2, f3, f4, f5 = st.columns([1.1, 1.4, 1.6, 1.3, 1.1])
 with f1:
     types = sorted(df["park_type"].dropna().unique().tolist())
-    sel_types = st.multiselect("機構類型", types, default=types)
+    # 少選項用 pills 多選（膠囊按鈕），全選也不會出現 multiselect 的 "No results"
+    sel_types = st.pills("機構類型", types, selection_mode="multi", default=types)
 with f2:
-    sel_levels = st.multiselect("風險等級", ["高", "中", "低"], default=["高", "中", "低"])
+    levels_all = ["高", "中", "低"]
+    sel_levels = st.pills("風險等級", levels_all, selection_mode="multi", default=levels_all)
 with f3:
+    # 行政區選項多，維持 multiselect（有下拉搜尋），預設不全選故無 "No results"
     districts = sorted(df["district"].dropna().unique().tolist())
     sel_districts = st.multiselect("行政區", districts, default=[])
 with f4:

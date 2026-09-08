@@ -46,6 +46,7 @@ DISTRICT_COORD = {
     "烏來區": (24.8654, 121.5510), "瑞芳區": (25.1088, 121.8050),
     "金山區": (25.2216, 121.6362), "土城區": (24.9723, 121.4430),
     "蘆洲區": (25.0847, 121.4739), "新莊區": (25.0359, 121.4503),
+    "汐止區": (25.0631, 121.6420),
 }
 
 
@@ -82,10 +83,17 @@ def risk_level_abs(total):
     return "高" if total >= 60 else ("中" if total >= 35 else "低")
 
 
-def build_year(addresses, penalties, year, drift=0.0):
-    """為某年度合成一批園資料。drift 讓不同年度數字有差異，供趨勢/年增率。"""
+def build_year(addresses, penalties, year, drift=0.0,
+               park_type="公校", id_prefix="136"):
+    """
+    為某年度合成一批園資料。drift 讓不同年度數字有差異，供趨勢/年增率。
+    park_type：機構類型（公校 / 非營利），寫入 park_type 欄。
+    id_prefix：park_id 前綴（公校用 136xx，非營利用 NP1xx 之類）。
+    penalties 可為 None（非營利園目前無裁罰示範資料，視為 0 次、無評鑑）。
+    """
     rows = []
-    pen_map = penalties.set_index("park_name").to_dict("index")
+    pen_map = (penalties.set_index("park_name").to_dict("index")
+               if penalties is not None else {})
     for i, a in addresses.iterrows():
         name = a["park_name"]
         district = a["district"]
@@ -128,8 +136,8 @@ def build_year(addresses, penalties, year, drift=0.0):
         # 注意：score_financial 需要「班佛組內相對分」，那是全體層級才算得出來，
         # 因此財務分統一在 finalize() 重算，這裡先不算。
         rows.append({
-            "park_id": f"136{i+1:02d}",
-            "park_name": name, "park_type": "公校", "year": year,
+            "park_id": f"{id_prefix}{i+1:02d}",
+            "park_name": name, "park_type": park_type, "year": year,
             "district": district,
             "lat": None, "lng": None,  # 稍後填
             "income_actual": income, "expense_actual": expense,
@@ -206,10 +214,20 @@ def main():
     penalties = pd.read_csv(os.path.join(EXT, "penalties.csv")) \
         .drop_duplicates("park_name", keep="first")
 
-    # 多年度（112/113/114）供趨勢圖
+    # 非營利園基本資料（來源：data/raw 非營利園財報 PDF 檔名解析）
+    nonprofit_path = os.path.join(EXT, "nonprofit.csv")
+    nonprofit = pd.read_csv(nonprofit_path) if os.path.exists(nonprofit_path) else None
+
+    # 多年度（112/113/114）供趨勢圖：公校 + 非營利園各自合成後合併
     frames = []
     for yr, drift in [(112, -0.06), (113, 0.0), (114, 0.05)]:
-        frames.append(build_year(addresses, penalties, yr, drift))
+        # 公校（22 間，有真實園名/裁罰/評鑑）
+        frames.append(build_year(addresses, penalties, yr, drift,
+                                  park_type="公校", id_prefix="136"))
+        # 非營利園（38 間，園名來自 PDF；財務為合成佔位，待 OCR/Textract 抽真值）
+        if nonprofit is not None:
+            frames.append(build_year(nonprofit[["park_name", "district"]], None, yr,
+                                     drift, park_type="非營利", id_prefix="NP1"))
     full = pd.concat(frames, ignore_index=True)
     full = finalize(full)
     full[OUT_COLS].to_csv(os.path.join(PROC, "kindergartens.csv"),

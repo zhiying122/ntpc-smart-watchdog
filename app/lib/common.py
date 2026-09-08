@@ -42,8 +42,8 @@ INK = "#1F2733"           # text-primary
 INK_2 = "#5A626D"         # text-secondary
 INK_MUTED = "#8A929C"     # text-muted
 FAINT = "#AEB4BC"         # 無資料
-BORDER = "#E4E7EC"        # 主框線
-BORDER_STRONG = "#D2D7DE" # 強框線（表頭分隔）
+BORDER = "#C7CDD6"        # 主框線（加深，提升卡片/表格輪廓清晰度）
+BORDER_STRONG = "#B4BBC5" # 強框線（表頭分隔、輸入框，較主框線再深一階）
 
 # ---- 五階風險語意色（僅用於風險元素）----
 # key: 英文語意層；(前景深字色, 淺底色, 框線色)
@@ -94,13 +94,26 @@ RADAR_DIMS = [
     ("score_sentiment", "輿情負面"),
 ]
 
-# 導覽定義（模組名 → 對應 pages 檔的顯示名、icon）
+# ---------------------------------------------------------------------------
+# 導覽定義（單一導覽來源 / Single Source of Navigation）
+# ---------------------------------------------------------------------------
+# 本專案採「舊式 pages/ multipage 架構」。導覽一律用 Streamlit 原生 st.page_link()
+# 產生，交由 Streamlit 內建 router 處理，路徑必然與 page registry 一致，
+# 因此不會出現 "Page not found"。
+#
+# page 欄位＝相對於 entry point（app/主頁.py）的「檔案路徑」，非 URL slug，
+# 也非 Python module path。這是 st.page_link() 唯一正確的頁面指定方式：
+#   主頁          -> "主頁.py"（entry point 本身）
+#   pages/1_case  -> "pages/1_case.py"
+# key 僅用於「目前頁面 active 標示」，以檔名關鍵字比對。
+#
+# NAV item: (key, 側欄顯示名, icon, page 檔案路徑)
 NAV = [
-    ("主頁", "風險總覽", "dashboard"),
-    ("單園詳情", "案件調查", "case"),
-    ("風險地圖", "風險地圖", "map"),
-    ("AI稽查建議", "AI 決策支援", "ai"),
-    ("輿情分析", "輿情分析", "sentiment"),
+    ("主頁",       "風險總覽",     "dashboard", "主頁.py"),
+    ("1_case",     "案件調查",     "case",      "pages/1_case.py"),
+    ("2_map",      "風險地圖",     "map",       "pages/2_map.py"),
+    ("3_ai",       "AI 決策支援",  "ai",        "pages/3_ai.py"),
+    ("4_sentiment", "輿情分析",    "sentiment", "pages/4_sentiment.py"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -225,17 +238,38 @@ def _css():
     h1,h2,h3,h4 {{ color:var(--ink); font-weight:600; letter-spacing:.01em; }}
 
     /* ===== 側欄：深石墨品牌骨架（pixel-level 對齊）===== */
-    [data-testid="stSidebar"] {{ background:{SIDEBAR_BG}; border-right:none;
-      min-width:var(--sidebar-w) !important; }}
+    /* 側欄背景色（不影響寬度）*/
+    [data-testid="stSidebar"] {{ background:{SIDEBAR_BG}; border-right:none; }}
+    /* 最小寬度只在「展開時」生效；收合時交還給 Streamlit（寬度 0），
+       否則 min-width !important 會把收合後的側欄硬撐開，留下深色空白條。 */
+    [data-testid="stSidebar"][aria-expanded="true"] {{ min-width:var(--sidebar-w) !important; }}
+    /* 收合狀態：確保完全塌陷、不佔版面、不顯示深色殘影 */
+    [data-testid="stSidebar"][aria-expanded="false"] {{
+      min-width:0 !important; width:0 !important; margin-left:0 !important;
+      overflow:hidden; border-right:none !important; }}
+    [data-testid="stSidebar"][aria-expanded="false"] * {{ visibility:hidden; }}
     [data-testid="stSidebar"] > div:first-child {{ display:flex; flex-direction:column; height:100%; }}
     [data-testid="stSidebar"] * {{ color:{SIDEBAR_INK}; }}
     [data-testid="stSidebarNav"] {{ display:none; }}
-    /* 清掉側欄容器與內容區的頂部預設留白，讓品牌區貼近頂端 */
+    /* 清掉側欄容器與內容區的頂部預設留白 */
     [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {{ padding:0 !important; }}
     [data-testid="stSidebar"] > div:first-child {{ padding-top:0 !important; }}
-    [data-testid="stSidebar"] [data-testid="stSidebarHeader"] {{ height:0; padding:0; min-height:0; }}
+    /* Sidebar header：保留一列高度容納「收合按鈕（»）」，按鈕靠右，
+       不再壓成 0，否則按鈕會浮到品牌區、與 logo 重疊。 */
+    [data-testid="stSidebar"] [data-testid="stSidebarHeader"] {{
+      height:auto !important; min-height:0 !important;
+      padding:6px 8px 0 !important; display:flex; justify-content:flex-end; align-items:center;
+      background:transparent; }}
+    /* 收合按鈕：融入深色側欄，低調不搶眼 */
+    [data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button,
+    [data-testid="stSidebar"] [data-testid="stBaseButton-headerNoPadding"] {{
+      color:{SIDEBAR_INK_DIM} !important; background:transparent !important; border:none !important; }}
+    [data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button:hover {{
+      color:#F1F4F7 !important; background:rgba(255,255,255,.06) !important; }}
+    [data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] svg {{ fill:currentColor !important; }}
     section[data-testid="stSidebar"] .block-container {{ padding-top:0 !important; }}
-    .sw-brand {{ padding:var(--s4) var(--s4) var(--s4); border-bottom:1px solid rgba(255,255,255,.08); }}
+    /* 品牌區：header 之下，頂部只留少量間距（header 已佔一列） */
+    .sw-brand {{ padding:var(--s2) var(--s4) var(--s4); border-bottom:1px solid rgba(255,255,255,.08); }}
     .sw-brand .logo {{ display:flex; align-items:center; gap:var(--s2); }}
     .sw-brand .name {{ font-size:1.18rem; font-weight:700; color:#F1F4F7; letter-spacing:.03em;
       line-height:1; }}
@@ -250,6 +284,48 @@ def _css():
     .sw-nav a.active {{ background:{SIDEBAR_ACTIVE}; color:#fff; border-left:2px solid {PRIMARY}; }}
     .sw-nav a svg {{ opacity:.85; flex:0 0 18px; width:18px; }}
     .sw-nav a span {{ line-height:1; }}
+
+    /* ===== 原生 st.page_link 導覽（單一導覽來源）：外觀貼齊 .sw-nav a ===== */
+    /* 佔位 div 不佔高度，避免品牌區與導覽之間出現空隙 */
+    .sw-nav-native {{ height:0; margin:0; padding:0; line-height:0; }}
+    /* 側欄各區塊（品牌 markdown / 導覽 container / footer）之間收緊：
+       覆蓋全域 16px 的 vertical block gap，改為 2px，消除品牌區到導覽的大空隙。 */
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{ gap:2px !important; }}
+    /* 側欄各 element-container 也去掉多餘上下 margin */
+    [data-testid="stSidebar"] [data-testid="stElementContainer"] {{ margin:0 !important; }}
+    /* 導覽項目左右內距對齊、上方留一點呼吸間距 */
+    [data-testid="stSidebar"] [data-testid="stPageLink"] {{ margin:0 var(--s2) !important; }}
+    /* 第一個導覽項與品牌區分隔線的間距：設為 16px（--s4），
+       與 footer（.sw-side-foot）的 padding-top:16px 對稱，
+       使「風險總覽上方」= 「輿情分析下方」的空間。 */
+    [data-testid="stSidebar"] [data-testid="stPageLink"]:first-of-type {{ margin-top:var(--s4) !important; }}
+    [data-testid="stSidebar"] [data-testid="stPageLink"] a,
+    [data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"] {{
+      display:flex !important; align-items:center; gap:10px; height:38px; padding:0 var(--s3) !important;
+      border-radius:var(--radius-sm); color:{SIDEBAR_INK} !important; font-size:.88rem;
+      text-decoration:none; margin:0 0 2px 0 !important; border-left:2px solid transparent;
+      transition:background .16s ease; background:transparent !important; }}
+    [data-testid="stSidebar"] [data-testid="stPageLink"] a:hover,
+    [data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"]:hover {{
+      background:rgba(255,255,255,.06) !important; color:#F1F4F7 !important; }}
+    /* active：Streamlit 對目前頁面加 aria-current="page" */
+    [data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"][aria-current="page"],
+    [data-testid="stSidebar"] [data-testid="stPageLink"] a[aria-current="page"] {{
+      background:{SIDEBAR_ACTIVE} !important; color:#fff !important;
+      border-left:2px solid {PRIMARY} !important; }}
+    [data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"][aria-current="page"] p,
+    [data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"][aria-current="page"] span {{
+      color:#fff !important; }}
+    /* 文字（label） */
+    [data-testid="stSidebar"] [data-testid="stPageLink"] p {{
+      color:inherit !important; font-size:.88rem !important; line-height:1 !important; margin:0 !important;
+      font-weight:400 !important; }}
+    /* 佔位 icon（▪）：縮小成小色點，對齊原 svg 的 18px 欄位 */
+    [data-testid="stSidebar"] [data-testid="stPageLink"] [data-testid="stIconMaterial"],
+    [data-testid="stSidebar"] [data-testid="stPageLink"] span[role="img"] {{
+      color:{SIDEBAR_INK_DIM} !important; font-size:12px !important; width:18px; flex:0 0 18px;
+      text-align:center; opacity:.7; }}
+
     /* System Status footer（企業式）*/
     .sw-side-foot {{ margin-top:auto; padding:var(--s4); border-top:1px solid rgba(255,255,255,.08); }}
     .sw-side-foot .stt-h {{ color:{SIDEBAR_INK_DIM}; font-size:.66rem; font-weight:600;
@@ -259,7 +335,16 @@ def _css():
     .sw-side-foot .stt-v {{ color:{SIDEBAR_INK}; font-size:.78rem; margin-top:2px;
       font-variant-numeric:tabular-nums; }}
     .sw-status {{ display:inline-flex; align-items:center; gap:6px; color:{SIDEBAR_INK}; font-size:.78rem; }}
-    .sw-status .dot {{ width:7px; height:7px; border-radius:50%; background:{RISK_BAR['normal']}; }}
+    /* 運作中指示燈：淺綠色 + 脈動綠光（呼吸效果），表示系統 live 運作 */
+    .sw-status .dot {{ width:7px; height:7px; border-radius:50%; background:#4ADE80;
+      position:relative; flex:0 0 7px;
+      box-shadow:0 0 0 0 #4ADE80;
+      animation:swStatusPulse 1.8s ease-in-out infinite; }}
+    @keyframes swStatusPulse {{
+      0%   {{ box-shadow:0 0 0 0 rgba(74,222,128,.55); opacity:1; }}
+      70%  {{ box-shadow:0 0 0 6px rgba(74,222,128,0); opacity:.75; }}
+      100% {{ box-shadow:0 0 0 0 rgba(74,222,128,0); opacity:1; }}
+    }}
 
     /* ===== 按鈕（統一高度）===== */
     .stButton>button, .stDownloadButton>button {{
@@ -285,6 +370,24 @@ def _css():
     [data-baseweb="tag"] span, [data-baseweb="tag"] div {{ color:#5A616B !important; font-size:.78rem !important; }}
     [data-baseweb="tag"] svg {{ fill:var(--faint) !important; color:var(--faint) !important; }}
     .stSlider [data-baseweb="slider"] div[role="slider"] {{ background:var(--primary); }}
+
+    /* ===== pills 多選（機構類型 / 風險等級）：膠囊按鈕，取代會出現 "No results" 的 multiselect ===== */
+    [data-testid="stPills"] {{ gap:6px; }}
+    [data-testid="stPills"] button {{
+      min-height:var(--control-h) !important; border-radius:999px !important;
+      border:1px solid var(--border) !important; background:var(--surface) !important;
+      color:var(--ink2) !important; font-size:.82rem !important; font-weight:500 !important;
+      padding:0 14px !important; box-shadow:none !important; transition:all .14s ease; }}
+    [data-testid="stPills"] button:hover {{
+      border-color:var(--primary) !important; color:var(--primary) !important; }}
+    /* 選中狀態：主色底白字（Streamlit 對選中 pill 加 aria-checked/aria-pressed）*/
+    [data-testid="stPills"] button[aria-checked="true"],
+    [data-testid="stPills"] button[aria-pressed="true"],
+    [data-testid="stPills"] button[kind="pillsActive"] {{
+      background:var(--primary) !important; border-color:var(--primary) !important;
+      color:#fff !important; }}
+    [data-testid="stPills"] button[aria-checked="true"] p,
+    [data-testid="stPills"] button[aria-pressed="true"] p {{ color:#fff !important; }}
 
     /* ===== expander / alert / tabs / chart ===== */
     [data-testid="stExpander"] {{ border:1px solid var(--border); border-radius:var(--radius); box-shadow:none; background:var(--surface); }}
@@ -363,7 +466,7 @@ def _css():
       padding:var(--card-pad); }}
     .sw-panel.fill {{ height:100%; box-sizing:border-box; }}
     .sw-scorecard {{ background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--primary);
-      border-radius:var(--radius); padding:var(--card-pad); }}
+      border-radius:var(--radius); padding:var(--card-pad); margin-bottom:var(--s4); }}
 
     /* Empty / Loading state */
     .sw-empty {{ border:1px dashed var(--border-strong); border-radius:var(--radius); background:var(--surface-alt);
@@ -386,18 +489,23 @@ def _css():
 # Shell：側欄品牌 + 導覽 + Header/Breadcrumb
 # ===========================================================================
 def _current_page_key():
-    """從 Streamlit context 推目前頁面檔名關鍵字（供導覽 active 標示）。"""
+    """
+    判斷目前正在執行哪一個頁面（供導覽 active 標示）。
+    以「呼叫堆疊中最靠近使用者頁面的來源檔名」比對 NAV key。
+    每個頁面腳本檔名皆含唯一關鍵字（主頁.py / 1_case.py / 2_map.py ...），
+    因此以檔名關鍵字比對即可，跨平台（Windows 反斜線路徑亦適用）。
+    """
+    import inspect
     try:
-        ctx = st.runtime.scriptrunner.get_script_run_ctx()
-        path = getattr(ctx, "main_script_path", "") or ""
-        # 多頁 app 執行中的頁面
-        pg = getattr(ctx, "page_script_hash", "")
-        # 直接用目前執行檔名判斷
-        import inspect
-        for f in inspect.stack():
-            fn = f.filename
-            for key, _, _ in NAV:
-                if key in fn:
+        for frame in inspect.stack():
+            fn = os.path.basename(frame.filename)
+            for key, _disp, _ic, _page in NAV:
+                # 主頁：entry point 檔名為「主頁.py」
+                if key == "主頁":
+                    if fn == "主頁.py":
+                        return "主頁"
+                # 其他頁：檔名關鍵字（如 1_case）出現在檔名中
+                elif key in fn:
                     return key
     except Exception:
         pass
@@ -405,12 +513,14 @@ def _current_page_key():
 
 
 def _sidebar(active_key):
-    nav_html = "".join(
-        f"<a href='{'/' if key=='主頁' else '/'+disp}' target='_self' "
-        f"class='{'active' if key==active_key else ''}'>"
-        f"{icon(ic, 17, '#C6CDD6')}<span>{disp}</span></a>"
-        for key, disp, ic in NAV
-    )
+    """
+    側欄 = 品牌區 + 導覽 + System Status footer。
+    導覽使用 Streamlit 原生 st.page_link()（單一導覽來源），
+    由 Streamlit 內建 router 處理頁面切換，路徑保證與 page registry 一致，
+    故不會出現 "Page not found"。視覺以 CSS（.sw-nav-native）貼齊原設計。
+    每個 icon 以獨立 class 呈現（純 CSS mask），不動元件內部結構。
+    """
+    # --- 1) 品牌區（HTML）---
     st.sidebar.markdown(
         f"""
         <div class='sw-brand'>
@@ -418,7 +528,20 @@ def _sidebar(active_key):
             <span class='name'>Fiscalint</span></div>
           <div class='tag'>企業級鑑識會計風險情報平台</div>
         </div>
-        <nav class='sw-nav'>{nav_html}</nav>
+        <div class='sw-nav-native'></div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # --- 2) 導覽（Streamlit 原生 page_link，單一來源）---
+    with st.sidebar.container():
+        for key, disp, ic, page in NAV:
+            # label 前置一個對應 icon 的字元標記，交由 CSS 依 key 疊上線性 SVG。
+            st.page_link(page, label=disp, icon=_NAV_EMOJI.get(key, "•"))
+
+    # --- 3) System Status footer（HTML）---
+    st.sidebar.markdown(
+        f"""
         <div class='sw-side-foot'>
           <div class='stt-h'>System Status</div>
           <div class='stt-row'><div class='sw-status'><span class='dot'></span>Operational</div></div>
@@ -430,6 +553,13 @@ def _sidebar(active_key):
         """,
         unsafe_allow_html=True,
     )
+
+
+# 導覽項目的 icon（用單色圓點 emoji 佔位，實際外觀由 CSS 控制；
+# st.page_link 的 icon 僅接受單一 emoji 或 Material 圖示，這裡用中性符號）。
+_NAV_EMOJI = {
+    "主頁": "▪", "1_case": "▪", "2_map": "▪", "3_ai": "▪", "4_sentiment": "▪",
+}
 
 
 def setup_page(page_title, header_title, subtitle=None, layout="wide",
