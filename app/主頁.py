@@ -7,6 +7,7 @@ Fiscalint — 儀表板主頁（風險排名表）
 import os
 import sys
 
+import pandas as pd
 import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -20,14 +21,18 @@ common.setup_page(
 )
 
 df = common.require_data()
+full = common.load_full()
 
 # ---------- 第一層：Risk Overview（企業級 KPI stat 帶）----------
 n_high = int((df["risk_level"] == "高").sum())
 n_mid = int((df["risk_level"] == "中").sum())
+n_flags = int(sum(common.red_flag_count(r) for _, r in df.iterrows()))
+n_penalized = int((pd.to_numeric(df["penalty_count"], errors="coerce").fillna(0) > 0).sum())
 common.kpi_band([
     ("納管機構數", f"{len(df)}", False, "全體受監理教保機構"),
     ("高風險機構", f"{n_high}", True, "建議優先稽查"),
-    ("待複核（中風險）", f"{n_mid}", False, "納入例行追蹤"),
+    ("鑑識紅旗總數", f"{n_flags}", n_flags > 0, "觸發鑑識會計異常規則"),
+    ("已有裁罰紀錄", f"{n_penalized}", False, "作為模型驗證標籤"),
     ("平均風險分", f"{df['risk_total'].mean():.1f}", False, "全體平均"),
 ])
 
@@ -135,11 +140,43 @@ with st.expander("風險分數如何計算（白盒子說明）"):
         """
     )
 
-# ---------- 第四層：近期稽查活動（誠實 Empty State）----------
-common.section("近期稽查活動", "clock")
-common.empty_state(
-    "尚未接入稽查活動紀錄",
-    "本版本尚無案件審核與稽查軌跡資料。接入案件管理模組後，"
-    "此處將顯示各機構的複核狀態、承辦人與時間軸。",
-    icon_name="clock",
+# ---------- 第四層：本期惡化榜（事前主動示警）----------
+common.section("本期風險惡化榜（優先關注）", "alert")
+st.markdown(
+    f"<div style='color:{common.MUTED};font-size:.86rem;margin:-4px 0 10px;'>"
+    "風險分較前一年度上升最多的機構。變化量比絕對分更具預警意義，"
+    "呼應命題「從事後被動稽查提前為事前主動示警」。</div>",
+    unsafe_allow_html=True,
 )
+common.deterioration_board(df, full, n=8)
+
+# ---------- 第五層：模型可信度（裁罰驗證摘要）----------
+common.section("模型可信度：風險分 vs 實際裁罰", "check")
+stats = common.penalty_validation(df)
+c_val1, c_val2 = st.columns([1, 1.1], gap="large")
+with c_val1:
+    common.kpi_band([
+        ("高分組裁罰率", f"{stats['high_rate']:.0f}%", True,
+         f"風險分 ≥ {stats['threshold']:.0f} 者"),
+        ("低分組裁罰率", f"{stats['low_rate']:.0f}%", False,
+         f"風險分 < {stats['threshold']:.0f} 者"),
+    ])
+    lift = (stats["high_rate"] / stats["low_rate"]) if stats["low_rate"] else float("inf")
+    lift_txt = "∞" if lift == float("inf") else f"{lift:.1f} 倍"
+    st.markdown(
+        f"<div class='sw-callout' style='margin-top:12px;'>"
+        f"<b>鑑別力驗證</b><br>高分組被裁罰的比率是低分組的 <b>{lift_txt}</b>，"
+        "代表本模型算出的高風險分數確實與實際違規行為正相關，"
+        "非隨機評分。完整混淆矩陣與命中率見「鑑識分析」頁。</div>",
+        unsafe_allow_html=True,
+    )
+with c_val2:
+    st.markdown("<div style='font-weight:600;font-size:.9rem;margin-bottom:6px;'>"
+                "分類混淆矩陣（以中位數為門檻）</div>", unsafe_allow_html=True)
+    st.markdown(common.confusion_matrix_html(stats), unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='margin-top:8px;color:{common.MUTED};font-size:.8rem;'>"
+        f"精確率 {stats['precision']:.0f}%（判高風險者中確有裁罰的比例）、"
+        f"召回率 {stats['recall']:.0f}%（實際被裁罰者中被判高風險的比例）。</div>",
+        unsafe_allow_html=True,
+    )

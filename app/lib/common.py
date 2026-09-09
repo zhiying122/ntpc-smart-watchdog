@@ -109,6 +109,8 @@ RADAR_DIMS = [
 # NAV item: (key, 側欄顯示名, icon, page 檔案路徑)
 NAV = [
     ("主頁",       "風險總覽",     "dashboard", "主頁.py"),
+    ("5_action",   "稽查行動",     "alert",     "pages/5_action.py"),
+    ("6_forensic", "鑑識分析",     "case",      "pages/6_forensic.py"),
     ("1_case",     "案件調查",     "case",      "pages/1_case.py"),
     ("2_map",      "風險地圖",     "map",       "pages/2_map.py"),
     ("3_ai",       "AI 決策支援",  "ai",        "pages/3_ai.py"),
@@ -555,7 +557,8 @@ def _sidebar(active_key):
 # 導覽項目的 icon（用單色圓點 emoji 佔位，實際外觀由 CSS 控制；
 # st.page_link 的 icon 僅接受單一 emoji 或 Material 圖示，這裡用中性符號）。
 _NAV_EMOJI = {
-    "主頁": "▪", "1_case": "▪", "2_map": "▪", "3_ai": "▪", "4_sentiment": "▪",
+    "主頁": "▪", "5_action": "▪", "6_forensic": "▪",
+    "1_case": "▪", "2_map": "▪", "3_ai": "▪", "4_sentiment": "▪",
 }
 
 
@@ -858,3 +861,324 @@ def require_data():
         )
         st.stop()
     return df
+
+
+# ===========================================================================
+# 進階共用元件（12 項政府視角功能共用）
+# 只負責呈現與純資料整形，計算仍在既有欄位上做，維持白盒子可解釋。
+# ===========================================================================
+
+# ---- 鑑識會計「紅旗」規則（單一定義來源，供紅旗清單／派工清單／稽查報告共用）----
+# 每條規則：(代碼, 名稱, 判定函式(row)->bool, 說明函式(row)->str, 合理區間字串)
+def _rf_ratio(r):
+    v = r.get("expense_income_ratio")
+    return pd.notna(v) and float(v) > 1.0
+
+
+def _rf_benford(r):
+    v = r.get("benford_mad")
+    return pd.notna(v) and float(v) >= 0.015
+
+
+def _rf_beneish(r):
+    v = r.get("beneish_score")
+    return pd.notna(v) and float(v) >= 40
+
+
+def _rf_iforest(r):
+    v = r.get("iforest_score")
+    return pd.notna(v) and float(v) >= 60
+
+
+def _rf_yoy(r):
+    v = r.get("expense_yoy_pct")
+    return pd.notna(v) and abs(float(v)) >= 20
+
+
+def _rf_penalty(r):
+    v = r.get("penalty_count")
+    return pd.notna(v) and int(v) > 0
+
+
+RED_FLAGS = [
+    ("F1", "收支結構失衡",
+     _rf_ratio,
+     lambda r: f"支出為收入 {float(r['expense_income_ratio']):.2f} 倍",
+     "收支比 ≤ 1.00"),
+    ("F2", "數字分布異常（班佛定律）",
+     _rf_benford,
+     lambda r: f"首位數偏離度 MAD = {float(r['benford_mad']):.4f}",
+     "MAD < 0.015"),
+    ("F3", "盈餘操縱訊號（Beneish）",
+     _rf_beneish,
+     lambda r: f"Beneish 操縱分 = {float(r['beneish_score']):.1f}",
+     "Beneish < 40"),
+    ("F4", "多維財務離群（孤立森林）",
+     _rf_iforest,
+     lambda r: f"孤立森林異常分 = {float(r['iforest_score']):.1f}",
+     "iForest < 60"),
+    ("F5", "年度支出劇烈波動",
+     _rf_yoy,
+     lambda r: f"支出年增率 = {float(r['expense_yoy_pct']):.1f}%",
+     "|年增率| < 20%"),
+    ("F6", "既有裁罰紀錄",
+     _rf_penalty,
+     lambda r: f"裁罰次數 = {int(r['penalty_count'])}",
+     "裁罰次數 = 0"),
+]
+
+
+def red_flags_for(row):
+    """回傳該機構觸發的紅旗清單 [(code, name, detail, normal_range, triggered_bool), ...]，含未觸發的。"""
+    out = []
+    for code, name, test, detail_fn, normal in RED_FLAGS:
+        try:
+            hit = bool(test(row))
+        except Exception:
+            hit = False
+        detail = ""
+        if hit:
+            try:
+                detail = detail_fn(row)
+            except Exception:
+                detail = ""
+        out.append((code, name, detail, normal, hit))
+    return out
+
+
+def red_flag_count(row):
+    return sum(1 for *_r, hit in red_flags_for(row) if hit)
+
+
+def red_flag_checklist(row):
+    """紅旗檢核清單（白盒子）：逐條列出觸發／正常 + 數值 + 合理區間。"""
+    rows_html = ""
+    for code, name, detail, normal, hit in red_flags_for(row):
+        if hit:
+            mark = (f"<span class='sw-badge' style='background:{RISK['high'][1]};"
+                    f"color:{RISK['high'][0]};border-color:{RISK['high'][2]};'>觸發</span>")
+            detail_txt = html.escape(detail)
+        else:
+            mark = (f"<span class='sw-badge' style='background:{RISK['normal'][1]};"
+                    f"color:{RISK['normal'][0]};border-color:{RISK['normal'][2]};'>正常</span>")
+            detail_txt = "<span class='sw-na'>—</span>"
+        rows_html += (
+            "<tr>"
+            f"<td class='l sw-rank'>{code}</td>"
+            f"<td class='l'>{html.escape(name)}</td>"
+            f"<td class='l'>{mark}</td>"
+            f"<td class='l'>{detail_txt}</td>"
+            f"<td class='l' style='color:{INK_MUTED};'>{html.escape(normal)}</td>"
+            "</tr>"
+        )
+    st.markdown(
+        "<table class='sw-table'><thead><tr>"
+        "<th class='l'>代碼</th><th class='l'>鑑識規則</th><th class='l'>判定</th>"
+        "<th class='l'>實際數值</th><th class='l'>合理區間</th>"
+        f"</tr></thead><tbody>{rows_html}</tbody></table>",
+        unsafe_allow_html=True,
+    )
+
+
+# ---- 同儕比較（Peer Benchmarking）----
+def peer_compare(df, row, metrics=None):
+    """
+    與「同類型（公校/非營利）」同儕比較各財務比率，標出偏離幾個標準差。
+    metrics: [(col, label, higher_is_worse_bool, fmt), ...]
+    """
+    if metrics is None:
+        metrics = [
+            ("expense_income_ratio", "收支比", True, lambda v: f"{v:.3f}"),
+            ("benford_mad", "班佛偏離度", True, lambda v: f"{v:.4f}"),
+            ("beneish_score", "Beneish 操縱分", True, lambda v: f"{v:.1f}"),
+            ("iforest_score", "孤立森林異常分", True, lambda v: f"{v:.1f}"),
+            ("score_financial", "財務異常分", True, lambda v: f"{v:.1f}"),
+        ]
+    peers = df[df["park_type"] == row["park_type"]]
+    rows_html = ""
+    for col, label, worse_high, fmt in metrics:
+        if col not in df.columns:
+            continue
+        series = pd.to_numeric(peers[col], errors="coerce").dropna()
+        v = row.get(col)
+        if pd.isna(v) or len(series) < 3:
+            continue
+        v = float(v)
+        med = float(series.median())
+        std = float(series.std(ddof=0)) or 1e-9
+        z = (v - med) / std
+        # 偏離方向的風險語意
+        deviated_worse = (z >= 1) if worse_high else (z <= -1)
+        c = RISK["high"][0] if deviated_worse else INK_2
+        # z 條（以 med 為中心，±3σ 映射到 0-100%）
+        pct = max(0, min((z + 3) / 6 * 100, 100))
+        bar_c = RISK_BAR["high"] if deviated_worse else PRIMARY
+        z_txt = f"{z:+.1f}σ"
+        rows_html += (
+            "<tr>"
+            f"<td class='l'>{html.escape(label)}</td>"
+            f"<td style='color:{c};font-weight:600;'>{fmt(v)}</td>"
+            f"<td>{fmt(med)}</td>"
+            "<td>"
+            "<span class='sw-bar-wrap'>"
+            f"<span class='sw-bar-num' style='color:{c};'>{z_txt}</span>"
+            "<span class='sw-bar-track' style='width:80px;position:relative;'>"
+            f"<span style='position:absolute;left:50%;top:0;bottom:0;width:1px;background:{BORDER_STRONG};'></span>"
+            f"<span class='sw-bar-fill' style='width:{pct:.0f}%;background:{bar_c};'></span>"
+            "</span></span>"
+            "</td>"
+            "</tr>"
+        )
+    st.markdown(
+        "<table class='sw-table'><thead><tr>"
+        "<th class='l'>財務指標</th><th>本機構</th><th>同儕中位數</th>"
+        "<th>偏離度（越右偏離越大）</th>"
+        f"</tr></thead><tbody>{rows_html}</tbody></table>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<div style='margin-top:8px;color:{INK_MUTED};font-size:.8rem;'>"
+        f"同儕範圍：{html.escape(str(row['park_type']))}類機構共 {len(peers)} 間。"
+        f"偏離度以中位數為中心、標準差為單位（σ）；紅色代表偏離達 1σ 以上且方向偏風險端。</div>",
+        unsafe_allow_html=True,
+    )
+
+
+# ---- 風險變化 / 惡化榜（跨年度）----
+def build_delta(latest, full):
+    """
+    計算每間機構「最新年度 vs 前一年度」的總風險分變化。
+    回傳 DataFrame: park_name, district, risk_total, prev_total, delta, risk_level。
+    無前一年度者 delta 為 NaN。
+    """
+    if full is None or "risk_total" not in full.columns:
+        base = latest.copy()
+        base["prev_total"] = pd.NA
+        base["delta"] = pd.NA
+        return base
+    recs = []
+    for name, g in full.sort_values("year").groupby("park_name"):
+        g = g.dropna(subset=["risk_total"])
+        if len(g) == 0:
+            continue
+        cur = g.iloc[-1]
+        prev_total = float(g.iloc[-2]["risk_total"]) if len(g) >= 2 else None
+        recs.append({
+            "park_name": name,
+            "cur_total": float(cur["risk_total"]),
+            "prev_total": prev_total,
+        })
+    dd = pd.DataFrame(recs)
+    merged = latest.merge(dd, on="park_name", how="left")
+    merged["delta"] = merged["cur_total"] - merged["prev_total"]
+    return merged
+
+
+def deterioration_board(latest, full, n=8):
+    """本期惡化榜：風險分較前一年度上升最多的機構（事前主動示警）。"""
+    m = build_delta(latest, full)
+    worse = m.dropna(subset=["delta"])
+    worse = worse[worse["delta"] > 0].sort_values("delta", ascending=False).head(n)
+    if len(worse) == 0:
+        empty_state("本期無明顯惡化機構", "所有機構風險分較前一年度持平或下降。", "check")
+        return
+    rows_html = ""
+    for _, r in worse.iterrows():
+        d = float(r["delta"])
+        rows_html += (
+            "<tr>"
+            f"<td class='l'>{html.escape(str(r['park_name']))}</td>"
+            f"<td class='l'>{html.escape(str(r['district']))}</td>"
+            f"<td>{float(r['prev_total']):.1f}</td>"
+            f"<td>{float(r['cur_total']):.1f}</td>"
+            f"<td style='color:{RISK['high'][0]};font-weight:700;'>▲ {d:.1f}</td>"
+            f"<td class='l'>{badge(r['risk_level'])}</td>"
+            "</tr>"
+        )
+    st.markdown(
+        "<table class='sw-table'><thead><tr>"
+        "<th class='l'>機構名稱</th><th class='l'>行政區</th>"
+        "<th>前期分</th><th>本期分</th><th>變化</th><th class='l'>現等級</th>"
+        f"</tr></thead><tbody>{rows_html}</tbody></table>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<div style='margin-top:8px;color:{INK_MUTED};font-size:.8rem;'>"
+        "「事前主動示警」核心：變化量比絕對分更具預警意義，"
+        "風險快速上升的機構應優先關注即使目前尚未達高風險。</div>",
+        unsafe_allow_html=True,
+    )
+
+
+# ---- 裁罰預測驗證（模型可信度：高分園是否確實較常被裁罰）----
+def penalty_validation(df, threshold=None):
+    """
+    以既有裁罰紀錄驗證風險分的鑑別力：
+    - 若風險分能鑑別，則「高分組」的裁罰率應顯著高於「低分組」。
+    回傳 dict 統計，供頁面畫圖與說明。
+    """
+    d = df.copy()
+    d["has_penalty"] = pd.to_numeric(d["penalty_count"], errors="coerce").fillna(0) > 0
+    if threshold is None:
+        threshold = float(d["risk_total"].median())
+    high = d[d["risk_total"] >= threshold]
+    low = d[d["risk_total"] < threshold]
+    def rate(x):
+        return (x["has_penalty"].mean() * 100) if len(x) else 0.0
+    # 混淆矩陣：把「高分」視為模型預測正例、「有裁罰」視為實際正例
+    tp = int(((d["risk_total"] >= threshold) & d["has_penalty"]).sum())
+    fp = int(((d["risk_total"] >= threshold) & ~d["has_penalty"]).sum())
+    fn = int(((d["risk_total"] < threshold) & d["has_penalty"]).sum())
+    tn = int(((d["risk_total"] < threshold) & ~d["has_penalty"]).sum())
+    precision = tp / (tp + fp) * 100 if (tp + fp) else 0.0
+    recall = tp / (tp + fn) * 100 if (tp + fn) else 0.0
+    return {
+        "threshold": threshold,
+        "high_n": len(high), "low_n": len(low),
+        "high_rate": rate(high), "low_rate": rate(low),
+        "tp": tp, "fp": fp, "fn": fn, "tn": tn,
+        "precision": precision, "recall": recall,
+        "total_penalized": int(d["has_penalty"].sum()),
+    }
+
+
+def confusion_matrix_html(stats):
+    """把裁罰驗證的混淆矩陣畫成 2x2 表。"""
+    def cell(v, good):
+        c = RISK["normal"][0] if good else INK_2
+        return f"<td style='text-align:center;font-weight:700;font-size:1.1rem;color:{c};'>{v}</td>"
+    return (
+        "<table class='sw-table' style='max-width:460px;'>"
+        "<thead><tr><th class='l'></th>"
+        "<th style='text-align:center;'>實際有裁罰</th>"
+        "<th style='text-align:center;'>實際無裁罰</th></tr></thead><tbody>"
+        f"<tr><td class='l'>模型判高風險</td>{cell(stats['tp'], True)}{cell(stats['fp'], False)}</tr>"
+        f"<tr><td class='l'>模型判低風險</td>{cell(stats['fn'], False)}{cell(stats['tn'], True)}</tr>"
+        "</tbody></table>"
+    )
+
+
+# ---- 稽查派工卡（單列，供派工清單使用）----
+def dispatch_reason(row):
+    """為派工清單產生「為何要查」的白話理由（取觸發紅旗的前幾條）。"""
+    flags = [name for _c, name, _d, _n, hit in red_flags_for(row) if hit]
+    if not flags:
+        return "綜合風險分偏高，建議一併複核"
+    return "、".join(flags[:3])
+
+
+def audit_focus(row):
+    """依觸發紅旗給出建議查核重點。"""
+    focus = []
+    fset = {c for c, _n, _d, _nr, hit in red_flags_for(row) if hit}
+    if "F1" in fset:
+        focus.append("支出憑證與採購核銷")
+    if "F5" in fset:
+        focus.append("人事費與大額支出明細")
+    if "F2" in fset or "F3" in fset:
+        focus.append("原始帳冊與明細分類帳")
+    if "F6" in fset:
+        focus.append("前次裁罰改善情形")
+    if not focus:
+        focus.append("財務報表與收費作業")
+    return "、".join(dict.fromkeys(focus))

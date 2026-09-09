@@ -144,3 +144,75 @@ def generate_report(row, prefer_bedrock=True):
                     + f"\n\n（註：AWS Bedrock 呼叫失敗，已改用規則式範本。原因：{type(e).__name__}）",
                     "fallback")
     return generate_fallback(row), "fallback"
+
+
+def build_briefing(row):
+    """
+    稽查前情報告（結構化）。回傳 dict：
+    {summary, suspicions:[...], checks:[...], documents:[...]}
+    純規則式（不依賴 Bedrock），把鑑識指標翻成稽查員可直接用的行動清單。
+    Bedrock 可用時，generate_report() 仍提供白話段落版；此函式提供結構化骨架，
+    兩者互補：骨架保證有結構、Bedrock 補語意潤飾。
+    """
+    def num(k, default=0.0):
+        v = row.get(k)
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return default
+
+    name = row.get("park_name", "該機構")
+    total = num("risk_total")
+    level = row.get("risk_level", "中")
+    ratio = num("expense_income_ratio")
+    yoy = num("expense_yoy_pct")
+    pen = int(num("penalty_count"))
+    benford = num("benford_mad")
+    beneish = num("beneish_score")
+    iforest = num("iforest_score")
+
+    suspicions, checks, documents = [], [], []
+
+    if ratio > 1:
+        suspicions.append(f"入不敷出：支出達收入的 {ratio:.2f} 倍，長期恐影響營運與幼生權益")
+        checks.append("支出憑證與採購核銷是否合規、有無異常大額支出")
+        documents.append("支出明細、採購合約與核銷憑證")
+    if abs(yoy) >= 20:
+        suspicions.append(f"支出年增率 {yoy:.0f}%，波動偏離常態")
+        checks.append("該年度支出暴增／暴減的科目與原因")
+        documents.append("前後年度決算比較表")
+    if benford >= 0.015:
+        suspicions.append(f"財務數字首位分布偏離自然律（班佛 MAD {benford:.4f}），具人為調整嫌疑")
+        checks.append("原始帳冊金額是否有湊整、重複或人為填充跡象")
+        documents.append("明細分類帳與原始傳票")
+    if beneish >= 40:
+        suspicions.append(f"Beneish 操縱分 {beneish:.0f}，收支成長背離或應計項目異常")
+        checks.append("收入認列時點與應收／應計項目合理性")
+        documents.append("收入認列明細與應計項目底稿")
+    if iforest >= 60:
+        suspicions.append(f"多維財務特徵綜合離群（孤立森林 {iforest:.0f}）")
+        checks.append("整體財務結構與同儕的顯著差異項")
+        documents.append("完整決算書與財務比率分析")
+    if pen > 0:
+        suspicions.append(f"已有 {pen} 次裁罰紀錄，屬已知風險標的")
+        checks.append("前次裁罰事項的改善與追蹤情形")
+        documents.append("歷次裁罰函與改善計畫")
+
+    if not suspicions:
+        suspicions.append("各單項指標尚無明顯異常，惟綜合風險分需留意")
+    if not checks:
+        checks.append("財務報表與收費作業例行查核")
+    if not documents:
+        documents.append("最新年度決算書與收費明細")
+
+    summary_map = {
+        "高": f"{name}總風險 {total:.0f} 分，屬高風險，建議本週優先安排實地稽查。",
+        "中": f"{name}總風險 {total:.0f} 分，屬中度風險，建議納入例行稽查追蹤。",
+        "低": f"{name}總風險 {total:.0f} 分，風險相對偏低，維持常態管理即可。",
+    }
+    return {
+        "summary": summary_map.get(level, f"{name}總風險 {total:.0f} 分，建議持續觀察。"),
+        "suspicions": suspicions,
+        "checks": list(dict.fromkeys(checks)),
+        "documents": list(dict.fromkeys(documents)),
+    }
