@@ -17,10 +17,12 @@ PROC = os.path.join(ROOT, "data", "processed")
 
 # ---------- 分項權重（可調，簡報時秀這張）----------
 WEIGHTS = {
-    "financial": 0.45,   # 財務異常（四層鑑識會計，資料最完整可靠）
-    "penalty": 0.30,     # 裁罰紀錄
-    "eval": 0.15,        # 評鑑結果
-    "sentiment": 0.10,   # 輿情負面度（資料源尚未接入，暫降權重避免稀釋）
+    # 只用「已接入的真實資料源」組成總分，避免佔位值稀釋真實性。
+    # 輿情資料源尚未接入（無真實爬蟲/NLP），故不納入計分；原 10% 依比例
+    # 分配給其餘三項（45:30:15 → 50:34:16，合計 100%）。
+    "financial": 0.50,   # 財務異常（四層鑑識會計，資料最完整可靠）
+    "penalty": 0.34,     # 裁罰紀錄
+    "eval": 0.16,        # 評鑑結果
 }
 
 
@@ -32,17 +34,22 @@ def score_financial(row):
       + 收支比離群 10% + 跨年度突變 10% + 賸餘短絀率 10%
     多層方法互相佐證：多個方法同時指向的園，風險最高。
     """
-    benford = row.get("benford_score", 0) or 0
-    beneish = row.get("beneish_score", 0) or 0
-    iforest = row.get("iforest_score", 0) or 0
+    # NaN 安全轉 0：非營利園無逐筆明細 → benford_score 為 NaN，該層視為中性(0)，
+    # 不可用「NaN or 0」（NaN 為 truthy 會保留 NaN 並汙染總分）。
+    def _z(v):
+        return 0.0 if v is None or pd.isna(v) else float(v)
+
+    benford = _z(row.get("benford_score"))
+    beneish = _z(row.get("beneish_score"))
+    iforest = _z(row.get("iforest_score"))
     outlier = 100 if row.get("outlier_expense_ratio") else 0
     # 收支比 >1 (入不敷出) 加權：超過越多分越高
     ratio = row.get("expense_income_ratio")
     ratio_pts = 0
-    if ratio is not None and ratio > 1:
+    if pd.notna(ratio) and ratio > 1:
         ratio_pts = min((ratio - 1) * 500, 100)  # 超支20%即滿分
     yoy = row.get("expense_yoy_pct")
-    yoy_pts = min(abs(yoy) * 2, 100) if yoy is not None else 0
+    yoy_pts = min(abs(yoy) * 2, 100) if pd.notna(yoy) else 0
     # 賸餘短絀率：本期短絀占收入比，短絀越大代表基金被侵蝕，是重要財務警訊
     deficit_pts = 0
     surplus = row.get("surplus")
@@ -122,7 +129,10 @@ def _merge_external(df):
     geo_path = os.path.join(ROOT, "data", "processed", "geocoded.csv")
     if os.path.exists(geo_path):
         geo = pd.read_csv(geo_path).drop_duplicates("park_name", keep="first")
-        df = df.merge(geo[["park_name", "lat", "lng"]], on="park_name", how="left")
+        geo_cols = ["park_name", "lat", "lng"]
+        if "district" in geo.columns:
+            geo_cols.append("district")
+        df = df.merge(geo[geo_cols], on="park_name", how="left")
     return df
 
 
@@ -136,19 +146,24 @@ def build(df):
         df["penalty_count"] = 0
     if "eval_grade" not in df.columns:
         df["eval_grade"] = ""
-    if "neg_ratio" not in df.columns:
-        df["neg_ratio"] = pd.NA
+
+    # 併外部資料後，非營利園（無裁罰紀錄）penalty_count 會是 NaN。
+    # 介面以 int() 顯示裁罰次數，NaN 會導致 "cannot convert float NaN to integer"。
+    # 誠實預設：非營利園無裁罰資料 → 0 次；評鑑無資料 → 空字串（介面顯示 —）。
+    df["penalty_count"] = df["penalty_count"].fillna(0).astype(int)
+    df["eval_grade"] = df["eval_grade"].fillna("")
+    # 班佛樣本數：非營利園無逐筆明細 → 0（介面 int 顯示用）
+    if "benford_sample_n" in df.columns:
+        df["benford_sample_n"] = df["benford_sample_n"].fillna(0).astype(int)
 
     df["score_financial"] = df.apply(score_financial, axis=1)
     df["score_penalty"] = df["penalty_count"].apply(score_penalty)
     df["score_eval"] = df["eval_grade"].apply(score_eval)
-    df["score_sentiment"] = df["neg_ratio"].apply(score_sentiment)
 
     df["risk_total"] = (
         WEIGHTS["financial"] * df["score_financial"]
         + WEIGHTS["penalty"] * df["score_penalty"]
         + WEIGHTS["eval"] * df["score_eval"]
-        + WEIGHTS["sentiment"] * df["score_sentiment"]
     ).round(1)
     # 主用百分位相對分級（確保有高風險園、符合「稽查優先序」目的）
     df["risk_level"] = risk_level_percentile(df["risk_total"])
@@ -165,14 +180,14 @@ def main():
 
     # 輸出契約檔（給組員）
     cols = ["park_id", "park_name", "park_type", "year",
-            "lat", "lng",
+            "district", "lat", "lng",
             "income_actual", "expense_actual", "tuition_actual", "surplus",
             "expense_income_ratio", "benford_mad", "benford_sample_n", "benford_score",
             "benford_chi2", "benford_pvalue", "benford_significant",
             "beneish_score", "beneish_egdi", "beneish_tata",
             "iforest_score", "iforest_explain",
             "expense_yoy_pct", "penalty_count", "eval_grade",
-            "score_financial", "score_penalty", "score_eval", "score_sentiment",
+            "score_financial", "score_penalty", "score_eval",
             "risk_total", "risk_level", "risk_level_abs"]
     cols = [c for c in cols if c in out.columns]
     out_path = os.path.join(PROC, "kindergartens.csv")

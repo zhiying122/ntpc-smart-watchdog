@@ -121,3 +121,6 @@ logs/
 .coverage
 htmlcov/
 .tox/
+
+# Tesseract 語言包（放專案根 tessdata/，檔案大不進版控；用 scripts 還原）
+/tessdata/
