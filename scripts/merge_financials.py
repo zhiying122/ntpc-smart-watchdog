@@ -32,6 +32,15 @@ def build_nonprofit_rows():
     meta = pd.read_csv(EXT / "nonprofit.csv")  # code, short_name, park_name, district
     meta_by_code = meta.set_index("code").to_dict("index")
 
+    # ---- OCR 修正表（經淨資產變動表交叉驗證後的真值）----
+    # key: (code, 學年度) -> {income, expense, surplus}
+    # N34 佳和 113：收支表 OCR 把支出決算誤抄成收入決算(15,622,560)且餘絀誤判 -926,600；
+    #   經 p6 本期稅後餘絀決算 145,750 與 p7 淨資產變動表相互佐證，修正如下：
+    #   收入 15,622,560（原即正確）、餘絀 +145,750、支出 = 收入 - 餘絀 = 15,476,810。
+    OCR_FIX = {
+        ("N34", 113): {"income": 15622560, "expense": 15476810, "surplus": 145750},
+    }
+
     # code 對齊：nonprofit_financials 的 code 是 'N01安溪' → 取 'N01'
     npf["code_norm"] = npf["code"].str.extract(r"^(N\d+)")
     npf = npf[npf["income_actual"].notna() & npf["expense_actual"].notna()].copy()
@@ -44,13 +53,20 @@ def build_nonprofit_rows():
         park_name = m.get("park_name", f"{code_norm}非營利幼兒園")
         prev_income = prev_expense = None
         for _, r in g.iterrows():
-            income = int(r["income_actual"])
-            expense = int(r["expense_actual"])
-            # surplus：OCR 有就用，否則用會計恆等式補算
-            if pd.notna(r.get("surplus")):
-                surplus = int(r["surplus"])
+            yr = int(r["acad_year"])
+            fix = OCR_FIX.get((code_norm, yr))
+            if fix:
+                income = fix["income"]
+                expense = fix["expense"]
+                surplus = fix["surplus"]
             else:
-                surplus = income - expense
+                income = int(r["income_actual"])
+                expense = int(r["expense_actual"])
+                # surplus：OCR 有就用，否則用會計恆等式補算
+                if pd.notna(r.get("surplus")):
+                    surplus = int(r["surplus"])
+                else:
+                    surplus = income - expense
             rows.append({
                 "park_id": code_norm,
                 "park_name": park_name,

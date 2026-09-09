@@ -91,7 +91,6 @@ RADAR_DIMS = [
     ("score_financial", "財務異常"),
     ("score_penalty", "裁罰紀錄"),
     ("score_eval", "評鑑結果"),
-    ("score_sentiment", "輿情負面"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -547,8 +546,6 @@ def _sidebar(active_key):
           <div class='stt-row'><div class='sw-status'><span class='dot'></span>Operational</div></div>
           <div class='stt-row'><div class='stt-k'>Last Updated</div>
             <div class='stt-v'>{data_updated_at()}</div></div>
-          <div class='stt-row'><div class='stt-k'>Data Scope</div>
-            <div class='stt-v'>抽樣展示</div></div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -587,7 +584,6 @@ def setup_page(page_title, header_title, subtitle=None, layout="wide",
           </div>
           <div class='sw-meta'>
             <div>資料更新　<b>{data_updated_at()}</b></div>
-            <div>模式　<b>抽樣展示</b></div>
           </div>
         </div>
         """,
@@ -736,7 +732,7 @@ def render_ranking_table(view):
         "<tr>"
         "<th class='l'>#</th><th class='l'>機構名稱</th><th class='l'>行政區</th>"
         "<th>總風險分</th><th class='l'>等級</th>"
-        "<th>財務分</th><th>裁罰分</th><th>評鑑分</th><th>輿情分</th>"
+        "<th>財務分</th><th>裁罰分</th><th>評鑑分</th>"
         "<th>收支比</th><th>裁罰次數</th><th class='l'>評鑑等第</th>"
         "</tr>"
     )
@@ -752,7 +748,6 @@ def render_ranking_table(view):
             f"<td>{r['score_financial']:.1f}</td>"
             f"<td>{r['score_penalty']:.0f}</td>"
             f"<td>{r['score_eval']:.0f}</td>"
-            f"<td>{r['score_sentiment']:.1f}</td>"
             f"<td>{r['expense_income_ratio']:.3f}</td>"
             f"<td>{int(r['penalty_count'])}</td>"
             f"<td class='l'>{grade_badge(r.get('eval_grade'))}</td>"

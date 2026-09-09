@@ -74,8 +74,8 @@ with col_action:
     # 分項加權貢獻表
     st.markdown("<div style='font-weight:600;font-size:.9rem;margin-bottom:6px;'>"
                 "分項加權貢獻</div>", unsafe_allow_html=True)
-    dims_w = [("財務異常", "score_financial", 0.45), ("裁罰紀錄", "score_penalty", 0.30),
-              ("評鑑結果", "score_eval", 0.15), ("輿情負面", "score_sentiment", 0.10)]
+    dims_w = [("財務異常", "score_financial", 0.50), ("裁罰紀錄", "score_penalty", 0.34),
+              ("評鑑結果", "score_eval", 0.16)]
     body = ""
     for name, col, w in dims_w:
         s = row[col]

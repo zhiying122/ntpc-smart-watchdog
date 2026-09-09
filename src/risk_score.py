@@ -17,10 +17,12 @@ PROC = os.path.join(ROOT, "data", "processed")
 
 # ---------- 分項權重（可調，簡報時秀這張）----------
 WEIGHTS = {
-    "financial": 0.45,   # 財務異常（四層鑑識會計，資料最完整可靠）
-    "penalty": 0.30,     # 裁罰紀錄
-    "eval": 0.15,        # 評鑑結果
-    "sentiment": 0.10,   # 輿情負面度（資料源尚未接入，暫降權重避免稀釋）
+    # 只用「已接入的真實資料源」組成總分，避免佔位值稀釋真實性。
+    # 輿情資料源尚未接入（無真實爬蟲/NLP），故不納入計分；原 10% 依比例
+    # 分配給其餘三項（45:30:15 → 50:34:16，合計 100%）。
+    "financial": 0.50,   # 財務異常（四層鑑識會計，資料最完整可靠）
+    "penalty": 0.34,     # 裁罰紀錄
+    "eval": 0.16,        # 評鑑結果
 }
 
 
@@ -144,8 +146,6 @@ def build(df):
         df["penalty_count"] = 0
     if "eval_grade" not in df.columns:
         df["eval_grade"] = ""
-    if "neg_ratio" not in df.columns:
-        df["neg_ratio"] = pd.NA
 
     # 併外部資料後，非營利園（無裁罰紀錄）penalty_count 會是 NaN。
     # 介面以 int() 顯示裁罰次數，NaN 會導致 "cannot convert float NaN to integer"。
@@ -159,13 +159,11 @@ def build(df):
     df["score_financial"] = df.apply(score_financial, axis=1)
     df["score_penalty"] = df["penalty_count"].apply(score_penalty)
     df["score_eval"] = df["eval_grade"].apply(score_eval)
-    df["score_sentiment"] = df["neg_ratio"].apply(score_sentiment)
 
     df["risk_total"] = (
         WEIGHTS["financial"] * df["score_financial"]
         + WEIGHTS["penalty"] * df["score_penalty"]
         + WEIGHTS["eval"] * df["score_eval"]
-        + WEIGHTS["sentiment"] * df["score_sentiment"]
     ).round(1)
     # 主用百分位相對分級（確保有高風險園、符合「稽查優先序」目的）
     df["risk_level"] = risk_level_percentile(df["risk_total"])
@@ -189,7 +187,7 @@ def main():
             "beneish_score", "beneish_egdi", "beneish_tata",
             "iforest_score", "iforest_explain",
             "expense_yoy_pct", "penalty_count", "eval_grade",
-            "score_financial", "score_penalty", "score_eval", "score_sentiment",
+            "score_financial", "score_penalty", "score_eval",
             "risk_total", "risk_level", "risk_level_abs"]
     cols = [c for c in cols if c in out.columns]
     out_path = os.path.join(PROC, "kindergartens.csv")
