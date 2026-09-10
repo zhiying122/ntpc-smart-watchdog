@@ -317,3 +317,360 @@ if __name__ == "__main__":
     cols = ["park_name", "expense_income_ratio", "outlier_expense_ratio",
             "expense_yoy_pct", "expense_yoy_flag", "benford_mad", "benford_level"]
     print(out[cols].to_string(index=False))
+
+
+# ==========================================================================
+# 明確公式鑑識指標（Explicit-Formula Forensic Metrics, R7.1/7.2/7.4/7.5/7.9）
+# --------------------------------------------------------------------------
+# 對齊 design.md「Components and Interfaces → 1. Forensic_Engine」：
+#   compute_metrics(row, peer_stats) -> ForensicMetrics
+# 每一 Metric 皆附「非空明確公式字串」(R7.9)，並以小數點後 4 位輸出 (R7.1)。
+# 分母為 0 或缺值時，該指標標記 computable=False 而不拋例外 (R7.11，於此僅做
+# 安全保護；完整的突變/同儕排除語意由 Task 2.2 補齊)。
+# ==========================================================================
+from src.models import ForensicMetrics, Metric  # noqa: E402
+
+# 每一指標的明確公式定義字串（R7.9）。集中定義便於介面與文件引用。
+METRIC_FORMULAS = {
+    "income_growth": "收入成長率 = (本年度收入 − 前年度收入) / 前年度收入",
+    "expense_growth": "支出成長率 = (本年度支出 − 前年度支出) / 前年度支出",
+    "personnel_ratio": "人事費占比 = 人事費 / 總支出",
+    "operating_ratio": "業務費占比 = 業務費 / 總支出",
+    "income_per_child": "每名幼兒收入 = 收入 / 招生人數",
+    "expense_per_child": "每名幼兒支出 = 支出 / 招生人數",
+    "income_enrollment_consistency": (
+        "收入招生一致性 = (每名幼兒收入 − 同儕每名幼兒收入中位數) "
+        "/ 同儕每名幼兒收入中位數"
+    ),
+    "income_per_child_zscore": "每名幼兒收入 z-score = (x − 同儕平均) / 同儕標準差",
+    "income_per_child_percentile": "每名幼兒收入百分位 = 同儕群組中 ≤ x 之比例 × 100",
+    # 支出結構占比（R7.3）：人事/業務/其他三類占總支出比例，合計介於 0.99–1.01。
+    "personnel_share": "人事費占比（結構） = 人事費 / 總支出",
+    "operating_share": "業務費占比（結構） = 業務費 / 總支出",
+    "other_share": "其他占比（結構） = (總支出 − 人事費 − 業務費) / 總支出",
+}
+
+# 精度：小數點後 4 位（R7.1）。
+_METRIC_PRECISION = 4
+
+
+def _to_float(value):
+    """安全轉 float；None／NaN／無法轉換一律回傳 None（缺值保護 R7.11）。"""
+    if value is None:
+        return None
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(f) or math.isinf(f):
+        return None
+    return f
+
+
+def _safe_ratio(numerator, denominator):
+    """安全比值。
+
+    回傳 (value, computable)：
+      - 分子或分母缺值、或分母為 0 → (None, False)（R7.11）。
+      - 否則 → (四捨五入至 4 位小數之比值, True)（R7.1）。
+    """
+    num = _to_float(numerator)
+    den = _to_float(denominator)
+    if num is None or den is None or den == 0:
+        return None, False
+    return round(num / den, _METRIC_PRECISION), True
+
+
+def _make_metric(name, numerator, denominator):
+    """依安全比值建立帶公式字串的 Metric（R7.9）。"""
+    value, computable = _safe_ratio(numerator, denominator)
+    return Metric(
+        name=name,
+        value=value,
+        formula=METRIC_FORMULAS[name],
+        computable=computable,
+    )
+
+
+def _growth_metric(name, current, last):
+    """成長率指標 = (current − last) / |last|；last 為 0/缺值 → 不可計算。"""
+    cur = _to_float(current)
+    lst = _to_float(last)
+    if cur is None or lst is None or lst == 0:
+        return Metric(name=name, value=None, formula=METRIC_FORMULAS[name],
+                      computable=False)
+    value = round((cur - lst) / abs(lst), _METRIC_PRECISION)
+    return Metric(name=name, value=value, formula=METRIC_FORMULAS[name],
+                  computable=True)
+
+
+def _peer_percentile(x, peer_values):
+    """x 在同儕值序列中的百分位（≤ x 之比例 × 100），四捨五入至 4 位。"""
+    vals = [v for v in (_to_float(p) for p in peer_values) if v is not None]
+    if not vals:
+        return None
+    le_count = sum(1 for v in vals if v <= x)
+    return round(le_count / len(vals) * 100, _METRIC_PRECISION)
+
+
+def _peer_zscore(x, peer_values):
+    """x 相對同儕的 z-score = (x − 平均) / 標準差；標準差為 0/樣本不足 → None。"""
+    vals = [v for v in (_to_float(p) for p in peer_values) if v is not None]
+    if len(vals) < 2:
+        return None
+    mean = sum(vals) / len(vals)
+    var = sum((v - mean) ** 2 for v in vals) / len(vals)
+    std = math.sqrt(var)
+    if std == 0:
+        return None
+    return round((x - mean) / std, _METRIC_PRECISION)
+
+
+def compute_expense_structure(expense, personnel, operating):
+    """計算支出結構三類占比：人事／業務／其他（R7.3）。
+
+    定義（皆以總支出為分母）：
+      - personnel_share = 人事費 / 總支出
+      - operating_share = 業務費 / 總支出
+      - other_share     = (總支出 − 人事費 − 業務費) / 總支出
+
+    設計不變式：三類占比合計恆為 1（在浮點四捨五入下介於 0.99–1.01，R7.3），
+    因為 other_share 以「餘額」定義（總支出 − 人事 − 業務），故
+    personnel + operating + other 在代數上等於 總支出 / 總支出 = 1。
+
+    缺值保護（R7.11）：
+      - 總支出為 0 或缺值 → 回傳空 dict，該指標被視為不可計算並排除，
+        不拋例外，也不影響其餘指標。
+      - 人事費／業務費缺值時以 0 代入（未提報視為 0），確保仍可輸出結構，
+        餘額歸入「其他」。
+
+    參數
+    ----
+    expense : 總支出（分母）。
+    personnel : 人事費。
+    operating : 業務費。
+
+    回傳
+    ----
+    dict[str, float]
+        含 personnel_share／operating_share／other_share（4 位小數）；
+        總支出為 0／缺值時回傳空 dict。
+    """
+    total = _to_float(expense)
+    if total is None or total == 0:
+        return {}
+
+    personnel_amt = _to_float(personnel) or 0.0
+    operating_amt = _to_float(operating) or 0.0
+    other_amt = total - personnel_amt - operating_amt
+
+    return {
+        "personnel_share": round(personnel_amt / total, _METRIC_PRECISION),
+        "operating_share": round(operating_amt / total, _METRIC_PRECISION),
+        "other_share": round(other_amt / total, _METRIC_PRECISION),
+    }
+
+
+def compute_metrics(row, peer_stats=None):
+    """計算明確公式鑑識指標並回傳 ForensicMetrics（R7.1, 7.2, 7.4, 7.5, 7.9）。
+
+    參數
+    ----
+    row : Mapping
+        單一機構單一年度的財務欄位，支援鍵：
+        income_actual, expense_actual, income_last_year, expense_last_year,
+        personnel_expense（人事費）, operating_expense（業務費）,
+        enrollment（招生人數）。
+    peer_stats : Mapping | None
+        同儕統計資訊，用於收入/招生一致性與同儕 z-score／百分位（R7.2, R7.5）。
+        支援鍵：
+          - "income_per_child_median"：同儕每名幼兒收入中位數（供一致性指標）。
+          - "income_per_child_values"：同儕每名幼兒收入序列（供 z-score／百分位）。
+
+    回傳
+    ----
+    ForensicMetrics
+        六項明確公式指標（每項為帶公式字串的 Metric，值為 4 位小數或 None），
+        並於 expense_structure 附上收入/招生一致性與同儕 z-score／百分位。
+        分母為 0／缺值時該指標 computable=False（R7.11 安全保護）。
+    """
+    if hasattr(row, "get"):
+        get = row.get
+    else:  # 支援 dataclass / 具屬性物件
+        get = lambda k, default=None: getattr(row, k, default)  # noqa: E731
+
+    income = get("income_actual")
+    expense = get("expense_actual")
+    income_last = get("income_last_year")
+    expense_last = get("expense_last_year")
+    personnel = get("personnel_expense")
+    operating = get("operating_expense")
+    enrollment = get("enrollment")
+
+    # 六項明確公式指標（R7.1）。
+    income_growth = _growth_metric("income_growth", income, income_last)
+    expense_growth = _growth_metric("expense_growth", expense, expense_last)
+    personnel_ratio = _make_metric("personnel_ratio", personnel, expense)
+    operating_ratio = _make_metric("operating_ratio", operating, expense)
+    income_per_child = _make_metric("income_per_child", income, enrollment)
+    expense_per_child = _make_metric("expense_per_child", expense, enrollment)
+
+    # 支出結構三類占比：人事／業務／其他，合計介於 0.99–1.01（R7.3）。
+    # 總支出為 0／缺值時回傳空 dict（該指標不可計算、被排除，不中斷其餘指標，R7.11）。
+    extra: dict[str, float] = compute_expense_structure(expense, personnel, operating)
+
+    # 收入/招生一致性與同儕 z-score／百分位（R7.2, R7.5）。
+    peer_stats = peer_stats or {}
+    ipc = income_per_child.value
+    if income_per_child.computable and ipc is not None:
+        median = _to_float(peer_stats.get("income_per_child_median")
+                           if hasattr(peer_stats, "get") else None)
+        if median is not None and median != 0:
+            # 一致性指標：相對同儕中位數的偏離比例（R7.2）。
+            extra["income_enrollment_consistency"] = round(
+                (ipc - median) / abs(median), _METRIC_PRECISION
+            )
+        peer_values = (peer_stats.get("income_per_child_values")
+                       if hasattr(peer_stats, "get") else None) or []
+        z = _peer_zscore(ipc, peer_values)
+        if z is not None:
+            extra["income_per_child_zscore"] = z
+        pct = _peer_percentile(ipc, peer_values)
+        if pct is not None:
+            extra["income_per_child_percentile"] = pct
+
+    return ForensicMetrics(
+        income_growth=income_growth,
+        expense_growth=expense_growth,
+        personnel_ratio=personnel_ratio,
+        operating_ratio=operating_ratio,
+        income_per_child=income_per_child,
+        expense_per_child=expense_per_child,
+        expense_structure=extra,
+    )
+
+
+# ==========================================================================
+# 突變門檻與跨年度趨勢（Sudden Change & Cross-Year Trend, Task 2.3）
+# --------------------------------------------------------------------------
+# 對齊 design.md「Components and Interfaces → 1. Forensic_Engine」：
+#   sudden_change_flag(yoy_rate, threshold=0.30) -> bool
+# 需求：
+#   R7.6：YoY 變動率絕對值達到門檻（預設 0.30，可設定範圍 0.01–5.00）→ 標記突變。
+#   R7.7：提供涵蓋至少 3 個年度的跨年度趨勢；不足 3 年取全部可得年度。
+#   R7.10：保留既有班佛（MAD+卡方）、Beneish 改良版、Isolation Forest、IQR 方法
+#          （皆於本檔上方定義，未被本區塊改動）。
+# ==========================================================================
+
+# 突變門檻可設定範圍（R7.6）。
+SUDDEN_CHANGE_THRESHOLD_MIN = 0.01
+SUDDEN_CHANGE_THRESHOLD_MAX = 5.00
+# 跨年度趨勢的最小涵蓋年度數（R7.7）。
+TREND_MIN_YEARS = 3
+
+
+def sudden_change_flag(yoy_rate, threshold=0.30):
+    """判定某指標的年度對年度（YoY）變動是否構成「突變」（R7.6）。
+
+    定義（對齊 design.md）：
+        flag 為真 若且唯若 |yoy_rate| >= threshold。
+
+    參數
+    ----
+    yoy_rate : float | None
+        YoY 變動率（小數形式，例如 0.30 代表 +30%）。
+        注意：本函式以「小數比率」為單位，與既有 ``yoy_flag`` 以百分比（30）
+        為單位不同；兩者並存，各自服務不同呼叫端（``yoy_flag`` 供既有
+        ``analyze`` 管線，本函式對齊 R7.6 的比率門檻語意）。
+        yoy_rate 為 None（該指標不可計算，R7.11）→ 一律回傳 False，
+        使不可計算指標被排除於突變判定之外。
+    threshold : float, 預設 0.30
+        突變門檻，可設定範圍 0.01–5.00（R7.6）。超出範圍將夾擠（clamp）
+        至最近的合法邊界，確保門檻恆落在有效區間而不拋例外。
+
+    回傳
+    ----
+    bool
+        |yoy_rate| >= 有效門檻 時為 True，否則 False。
+    """
+    rate = _to_float(yoy_rate)
+    if rate is None:
+        return False
+    # 將門檻夾擠至合法範圍 [0.01, 5.00]（R7.6）。
+    thr = _to_float(threshold)
+    if thr is None:
+        thr = 0.30
+    thr = max(SUDDEN_CHANGE_THRESHOLD_MIN, min(thr, SUDDEN_CHANGE_THRESHOLD_MAX))
+    return abs(rate) >= thr
+
+
+def cross_year_trend(year_values, min_years=TREND_MIN_YEARS):
+    """建立涵蓋至少 3 個年度的跨年度趨勢；不足 3 年取全部可得年度（R7.7）。
+
+    參數
+    ----
+    year_values : Mapping[int, float] | Iterable[tuple[int, float]]
+        年度 → 指標值的對應。可為 dict（{112: v1, 113: v2, ...}）或
+        (year, value) 的可迭代序列。缺值（None／NaN）之年度會被略過。
+    min_years : int, 預設 3
+        期望涵蓋的最小年度數（R7.7 = 3）。
+
+    回傳
+    ----
+    dict
+        {
+          "years":  [由舊到新排序的年度],
+          "values": [對應年度值（4 位小數）],
+          "yoy_rates": [相鄰年度 YoY 比率；長度 = len(years) - 1，首年無前值故從缺],
+          "covers_min_years": bool,  # 是否涵蓋 >= min_years 個年度
+          "n_years": int,            # 實際涵蓋年度數（= 全部可得年度數，不足時取全部）
+        }
+        無任何可得年度時 years/values/yoy_rates 皆為空、covers_min_years=False。
+
+    設計說明
+    --------
+    - 年度由舊到新排序，確保趨勢方向一致（與 R5.3/R12.1 時間軸語意一致）。
+    - 涵蓋「全部可得年度」：不足 min_years 時不補值、不截斷，直接取全部
+      可得年度（R7.7）。因此 n_years == 可得年度總數。
+    - yoy_rates 以相鄰兩年計算 (cur - prev) / |prev|；prev 為 0 時該點以 None
+      表示（不可計算，呼應 R7.11 的除零保護），不拋例外。
+    """
+    # 正規化為 (year, value) 序列。
+    if hasattr(year_values, "items"):
+        pairs = list(year_values.items())
+    else:
+        pairs = list(year_values)
+
+    # 過濾缺值年度，並將年度轉為可排序數值。
+    cleaned = []
+    for year, value in pairs:
+        v = _to_float(value)
+        if v is None:
+            continue
+        try:
+            y = int(year)
+        except (TypeError, ValueError):
+            continue
+        cleaned.append((y, round(v, _METRIC_PRECISION)))
+
+    # 由舊到新排序，全部可得年度皆納入（不足 min_years 取全部，R7.7）。
+    cleaned.sort(key=lambda pair: pair[0])
+    years = [y for y, _ in cleaned]
+    values = [v for _, v in cleaned]
+
+    # 相鄰年度 YoY 比率（除零 → None，R7.11）。
+    yoy_rates = []
+    for i in range(1, len(values)):
+        prev, cur = values[i - 1], values[i]
+        if prev == 0:
+            yoy_rates.append(None)
+        else:
+            yoy_rates.append(round((cur - prev) / abs(prev), _METRIC_PRECISION))
+
+    return {
+        "years": years,
+        "values": values,
+        "yoy_rates": yoy_rates,
+        "covers_min_years": len(years) >= min_years,
+        "n_years": len(years),
+    }

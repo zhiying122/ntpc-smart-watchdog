@@ -106,6 +106,7 @@ data/processed/*.json
 # ==========================================================
 .vscode/
 .idea/
+*.code-workspace
 *.swp
 *.swo
 .DS_Store
@@ -121,6 +122,8 @@ logs/
 .coverage
 htmlcov/
 .tox/
+# Hypothesis 屬性測試快取資料庫（可重新產生，不進版控）
+.hypothesis/
 
 # Tesseract 語言包（放專案根 tessdata/，檔案大不進版控；用 scripts 還原）
 /tessdata/

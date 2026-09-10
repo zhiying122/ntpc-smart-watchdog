@@ -7,9 +7,77 @@ AI 稽查建議報告生成（AWS Bedrock）
 
 金鑰一律用 os.environ 讀取（禁止寫死）。若 Bedrock 未設定/失敗，
 自動退化為「規則式範本文字」，確保 Demo 一定跑得出東西。
+
+責任 AI（Responsible AI）：系統輸出僅限「發現異常、排序、解釋、提供證據、
+建議稽查方向」五類（R19.1）。AI 稽查助手（Copilot）以機構資料為依據回答
+（R15.1），關鍵陳述附來源（R15.2），資料不足明確告知不杜撰（R15.4），
+且絕不宣稱任何機構違法/舞弊/犯罪（R15.3, R19.2）——此約束同時透過
+提示詞負向約束與「輸出後過濾」兩道關卡落實（Property 31）。
 """
 import json
 import os
+import re
+from dataclasses import dataclass, field
+
+
+# --------------------------------------------------------------------------
+# 責任 AI 型別與負向約束（Responsible AI, R15/R19）
+# --------------------------------------------------------------------------
+
+# EntityData：Copilot 回答所依據的機構資料。沿用本模組既有 dict-like 慣例
+# （見 build_prompt/generate_fallback 的 row），型別上接受任意 Mapping。
+# 為維持既有基線可攜性，不強制引入額外 dataclass。
+EntityData = dict
+
+
+@dataclass
+class CopilotAnswer:
+    """AI 稽查助手（Copilot）對單一問題的回答（R15）。
+
+    - text：面向稽查員的回答文字，已通過負向約束過濾（R15.3, R19.2）。
+    - sources：關鍵陳述所依據的資料來源（R15.2）；資料不足時可為空。
+    - grounded：True 表示回答建立在該機構的實際資料上（R15.1）；
+      False 表示資料不足、已明確告知而未杜撰（R15.4）。
+    - data_sufficient：是否有足夠資料回答此問題（R15.4）。
+    - not_illegality_notice：非空「風險不等於違法」聲明（R19.4）。
+
+    Validates: Requirements 15.1, 15.2, 15.3, 15.4, 19.1, 19.2
+    """
+    text: str
+    sources: list = field(default_factory=list)
+    grounded: bool = False
+    data_sufficient: bool = False
+    not_illegality_notice: str = "風險不等於違法（Risk does not equal illegality）。"
+
+
+# 提示詞負向約束（第一道關卡）：附加於送往 Bedrock 的 prompt。
+RESPONSIBLE_AI_CONSTRAINTS = (
+    "【責任 AI 約束（務必遵守）】\n"
+    "1. 你只能做以下五件事：發現異常、排序、解釋、提供證據、建議稽查方向。\n"
+    "2. 嚴禁宣稱或暗示任何機構『違法、舞弊、犯罪、詐欺、貪污、洗錢、圖利』。"
+    "風險分數僅代表『需優先查核的可能性』，不等於違法事實。\n"
+    "3. 不得僅以單一訊號為機構貼上定性標籤；請以『需進一步查核』等中性措辭表述。\n"
+    "4. 只能引用下方提供的資料；資料不足時必須明確說『資料不足，無法回答』，"
+    "絕不可杜撰數字或來源。\n"
+    "5. 關鍵陳述請標明其資料依據（來源／指標名稱）。\n"
+)
+
+# 輸出後過濾（第二道關卡）：即使模型或範本不慎產出斷言字樣，也一律中和，
+# 確保 Property 31（不作違法／舞弊宣稱）在 Bedrock 與 fallback 兩條路徑皆成立。
+# 涵蓋定性斷言用語；替換為中性的『需進一步查核』語意。
+_ILLEGALITY_TERMS = [
+    "違法", "舞弊", "犯罪", "詐欺", "詐騙", "貪污", "貪汙", "洗錢",
+    "圖利", "掏空", "作假帳", "做假帳", "違規事實", "不法",
+    "illegal", "fraud", "fraudulent", "crime", "criminal",
+    "embezzle", "embezzlement", "corruption", "money laundering",
+]
+# 定性標籤（避免僅以單一訊號貼標籤，R19.3）：不將機構直接標為高風險/不合格。
+_LABEL_TERMS = ["不合格", "高風險機構", "問題園所", "黑心"]
+
+_SANITIZE_REPLACEMENT = "需進一步查核之疑慮"
+
+# 責任 AI 聲明（R19.4）：合法且必要的「風險不等於違法」用語，過濾時須白名單保留。
+_NOT_ILLEGALITY_NOTICE = "風險不等於違法"
 
 
 def build_prompt(row):
@@ -42,6 +110,7 @@ Beneish 操縱分：{g('beneish_score')}
     prompt = (
         "你是一位協助新北市教育局的稽查分析助理。以下是一間教保機構的風險量化指標，"
         "全部由『鑑識會計方法（班佛定律、Beneish、Isolation Forest）』與公開資料算出。\n\n"
+        f"{RESPONSIBLE_AI_CONSTRAINTS}\n"
         f"{facts}\n\n"
         "請用繁體中文，寫一段 120-200 字、給稽查員看的稽查建議，需包含：\n"
         "1) 一句話總結風險程度；\n"
@@ -50,6 +119,31 @@ Beneish 操縱分：{g('beneish_score')}
         "語氣專業、客觀、不誇大，不要杜撰指標裡沒有的資訊。"
     )
     return prompt
+
+
+def sanitize_output(text):
+    """輸出後過濾（第二道關卡）：中和任何違法/舞弊斷言與定性標籤字樣。
+
+    無論文字來自 Bedrock 或規則式範本，皆套用此過濾，確保系統輸出不將機構
+    斷言為違法/舞弊/犯罪，亦不直接標為不合格/高風險機構（R15.3, R19.2, R19.3）。
+    回傳過濾後文字（不改變其餘語意）。
+    """
+    if not text:
+        return text
+    cleaned = text
+    # 白名單：合法且必要的責任 AI 聲明本身含「違法」二字（R19.4），
+    # 必須保留不被過濾。先以佔位符保護，過濾完再還原。
+    placeholder = "\x00NOTICE\x00"
+    cleaned = cleaned.replace(_NOT_ILLEGALITY_NOTICE, placeholder)
+    # 違法/舞弊/犯罪等定性斷言 → 中性措辭
+    for term in _ILLEGALITY_TERMS:
+        cleaned = re.sub(re.escape(term), _SANITIZE_REPLACEMENT,
+                         cleaned, flags=re.IGNORECASE)
+    # 定性標籤 → 中性措辭
+    for term in _LABEL_TERMS:
+        cleaned = re.sub(re.escape(term), "需優先關注", cleaned)
+    cleaned = cleaned.replace(placeholder, _NOT_ILLEGALITY_NOTICE)
+    return cleaned
 
 
 def generate_with_bedrock(row):
@@ -72,7 +166,8 @@ def generate_with_bedrock(row):
     }
     resp = client.invoke_model(modelId=model_id, body=json.dumps(body))
     payload = json.loads(resp["body"].read())
-    return payload["content"][0]["text"].strip()
+    # 輸出後過濾（第二道關卡）：確保 Bedrock 路徑也不含違法/舞弊斷言（R15.3, R19.2）。
+    return sanitize_output(payload["content"][0]["text"].strip())
 
 
 def generate_fallback(row):
@@ -128,6 +223,32 @@ def generate_fallback(row):
         f"建議優先查核：{'、'.join(dict.fromkeys(suggests))}等項目，"
         "以釐清數字異常成因並確認經費使用合規性。"
     )
+    # 輸出後過濾（第二道關卡）：規則式範本路徑同樣不得含違法/舞弊斷言（R15.3, R19.2）。
+    return sanitize_output(text)
+
+
+# 最終保底文字（Last-resort）：即使規則式範本本身也拋例外/回空，
+# 仍確保 generate_report 回傳非空報告，維持可 Demo（R15.5, Property 43）。
+_LAST_RESORT_REPORT = (
+    "目前無法取得完整分析資料，系統暫以保底訊息回覆：建議稽查員就該機構之"
+    "財務報表、裁罰紀錄、評鑑結果與收費作業進行例行查核，以釐清潛在疑慮。"
+    "風險分數僅供稽查排序參考，風險不等於違法。"
+)
+
+
+def _safe_fallback(row):
+    """呼叫規則式範本並確保回傳非空字串；範本本身失敗時退回最終保底文字。
+
+    此為 R15.5／Property 43 的核心保底：無論 row 型別或內容為何，
+    皆回傳一段非空、且已通過責任 AI 過濾的稽查建議文字。
+    """
+    try:
+        text = generate_fallback(row)
+    except Exception:  # 範本邏輯對非預期輸入拋例外時，仍需保底
+        text = None
+    if not (isinstance(text, str) and text.strip()):
+        # 最終保底同樣套用輸出後過濾（第二道關卡）。
+        return sanitize_output(_LAST_RESORT_REPORT)
     return text
 
 
@@ -135,12 +256,152 @@ def generate_report(row, prefer_bedrock=True):
     """
     對外主函式。回傳 (report_text, source)。
     source: "bedrock" 表示真的用了 Bedrock；"fallback" 表示用範本。
+
+    保底保證（R15.5, Property 43）：只要 Bedrock 未設定或呼叫失敗（金鑰缺失、
+    網路、權限、模型未開通、模型回傳錯誤等任何例外），本函式一律退化為規則式
+    fallback，回傳「非空」報告文字並標示來源為 "fallback"，維持可 Demo。
     """
     if prefer_bedrock and os.environ.get("AWS_ACCESS_KEY_ID"):
         try:
-            return generate_with_bedrock(row), "bedrock"
-        except Exception as e:  # 網路/權限/模型未開通等
-            return (generate_fallback(row)
-                    + f"\n\n（註：AWS Bedrock 呼叫失敗，已改用規則式範本。原因：{type(e).__name__}）",
-                    "fallback")
-    return generate_fallback(row), "fallback"
+            text = generate_with_bedrock(row)
+            if isinstance(text, str) and text.strip():
+                return text, "bedrock"
+            # Bedrock 回傳空內容視同不可用，退化 fallback。
+            raise ValueError("empty bedrock response")
+        except Exception as e:  # 網路/權限/模型未開通/回傳錯誤等任何失敗
+            note = f"\n\n（註：AWS Bedrock 呼叫失敗，已改用規則式範本。原因：{type(e).__name__}）"
+            return _safe_fallback(row) + note, "fallback"
+    return _safe_fallback(row), "fallback"
+
+
+# --------------------------------------------------------------------------
+# AI 稽查助手（Copilot）— 以資料為依據回答（R15）
+# --------------------------------------------------------------------------
+
+# 可回答的欄位 → (人類可讀標籤, 該欄位的資料來源說明)。
+# 來源說明用於為關鍵陳述附上資料依據（R15.2）。
+_ANSWERABLE_FIELDS = {
+    "risk_total": ("總風險分", "白盒風險評分（鑑識會計指標加權）"),
+    "risk_level": ("風險等級", "白盒風險評分分級（≥70 高／40–69 中／<40 低）"),
+    "score_financial": ("財務異常分項", "鑑識會計財務指標"),
+    "score_penalty": ("裁罰分項", "全國教保資訊網裁罰紀錄"),
+    "score_eval": ("評鑑分項", "教保機構評鑑結果"),
+    "score_sentiment": ("輿情分項", "網路輿情 NLP 分析"),
+    "expense_income_ratio": ("收支比", "公校決算書／機構財報"),
+    "benford_mad": ("班佛偏離度(MAD)", "班佛定律檢定（首位數分布）"),
+    "beneish_score": ("Beneish 操縱分", "Beneish M-Score 模型"),
+    "iforest_score": ("孤立森林異常分", "Isolation Forest 異常偵測"),
+    "expense_yoy_pct": ("年度支出增減", "跨年度決算趨勢"),
+    "penalty_count": ("裁罰次數", "全國教保資訊網裁罰紀錄"),
+    "eval_grade": ("評鑑等第", "教保機構評鑑結果"),
+    "district": ("所在行政區", "機構基本資料"),
+    "park_type": ("機構類型", "機構基本資料"),
+}
+
+# 依問題關鍵字挑選相關欄位（讓回答扣緊問題）。
+_QUESTION_KEYWORDS = {
+    "財務": ["score_financial", "expense_income_ratio", "benford_mad",
+             "beneish_score", "expense_yoy_pct"],
+    "收支": ["expense_income_ratio", "expense_yoy_pct"],
+    "裁罰": ["score_penalty", "penalty_count"],
+    "評鑑": ["score_eval", "eval_grade"],
+    "輿情": ["score_sentiment"],
+    "風險": ["risk_total", "risk_level"],
+    "分數": ["risk_total", "risk_level"],
+}
+
+
+def _entity_get(entity, key):
+    """從 EntityData（dict 或具屬性物件）取值；缺值/NaN 視為 None。"""
+    if entity is None:
+        return None
+    if isinstance(entity, dict):
+        v = entity.get(key)
+    else:
+        v = getattr(entity, key, None)
+    if v is None or (isinstance(v, float) and v != v):
+        return None
+    return v
+
+
+def _select_relevant_fields(question):
+    """依問題文字挑選相關欄位；若無命中則回傳一組預設核心欄位。"""
+    q = question or ""
+    selected = []
+    for kw, fields in _QUESTION_KEYWORDS.items():
+        if kw in q:
+            selected.extend(fields)
+    if not selected:
+        selected = ["risk_total", "risk_level", "score_financial", "score_penalty"]
+    # 去重並保序
+    return list(dict.fromkeys(selected))
+
+
+def answer(question, entity):
+    """以該機構資料為依據回答稽查員提問，回傳 CopilotAnswer。
+
+    - 以 entity 的實際資料為依據作答（R15.1）。
+    - 關鍵陳述附上資料來源（R15.2）。
+    - 資料不足以回答時，明確告知資料不足而不杜撰（R15.4）。
+    - 透過提示詞負向約束 + 輸出後過濾，避免違法/舞弊斷言（R15.3, R19.2, R19.3）。
+    - 僅產出解釋/提供證據/建議稽查方向類輸出（R19.1）。
+
+    entity 為 EntityData（dict 或具對應屬性之物件），沿用本模組既有欄位命名。
+    """
+    name = _entity_get(entity, "park_name") or "該機構"
+    relevant = _select_relevant_fields(question)
+
+    # 蒐集有實際資料的欄位（作答依據）與其來源（R15.1, R15.2）。
+    found = []   # (label, value, source_note)
+    sources = []
+    for key in relevant:
+        if key not in _ANSWERABLE_FIELDS:
+            continue
+        val = _entity_get(entity, key)
+        if val is None:
+            continue
+        label, source_note = _ANSWERABLE_FIELDS[key]
+        found.append((label, val, source_note))
+        if source_note not in sources:
+            sources.append(source_note)
+
+    notice = f"風險分數僅供稽查排序參考，{_NOT_ILLEGALITY_NOTICE}。"
+
+    # 資料不足：明確告知、不杜撰（R15.4）。
+    if not found:
+        text = (
+            f"關於「{name}」的這項提問，目前系統缺乏足夠資料可供回答，"
+            "為避免杜撰，暫不提供推測。建議補齊對應的財務、裁罰、評鑑或輿情資料後再行查詢。"
+            f" {notice}"
+        )
+        return CopilotAnswer(
+            text=sanitize_output(text),
+            sources=[],
+            grounded=False,
+            data_sufficient=False,
+            not_illegality_notice=notice,
+        )
+
+    # 以資料為依據組出回答，關鍵陳述附來源（R15.1, R15.2）。
+    def _fmt(v):
+        if isinstance(v, float):
+            return f"{v:.2f}".rstrip("0").rstrip(".")
+        return str(v)
+
+    statements = [
+        f"{label} 為 {_fmt(value)}（依據：{source_note}）"
+        for label, value, source_note in found
+    ]
+    text = (
+        f"依「{name}」現有資料，{'；'.join(statements)}。"
+        "以上為需進一步查核之參考訊號，建議就相關憑證與明細優先核對。"
+        f" {notice}"
+    )
+
+    return CopilotAnswer(
+        text=sanitize_output(text),   # 輸出後過濾（第二道關卡）
+        sources=sources,
+        grounded=True,
+        data_sufficient=True,
+        not_illegality_notice=notice,
+    )

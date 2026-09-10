@@ -14,6 +14,7 @@ from streamlit_folium import st_folium
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib import common  # noqa: E402
+from lib import risk_map  # noqa: E402
 
 common.setup_page(
     page_title="Fiscalint｜風險地圖",
@@ -56,40 +57,51 @@ fmap = folium.Map(location=center, zoom_start=11, tiles="OpenStreetMap",
                   control_scale=True)
 
 for _, r in geo.iterrows():
-    color = common.level_color(r["risk_level"])
-    problems = []
-    if r["expense_income_ratio"] > 1:
-        problems.append(f"入不敷出（收支比 {r['expense_income_ratio']:.2f}）")
-    if r["penalty_count"] and int(r["penalty_count"]) > 0:
-        problems.append(f"裁罰 {int(r['penalty_count'])} 次")
-    if r["score_financial"] >= 40:
-        problems.append("財務指標異常")
-    if not problems:
-        problems.append("綜合分數偏高" if r["risk_level"] != "低" else "風險低")
-    problem_html = "<br>".join(f"· {p}" for p in problems)
+    # 呈現無關的標記描述（顏色映射、風險訊號、缺資料處理）由 risk_map 提供，
+    # 頁面僅負責 folium 渲染（薄包裝）。
+    mk = risk_map.build_marker(r.to_dict())
+    color = mk.color
+    district = str(r.get("district", "")) if hasattr(r, "get") else r["district"]
+    park_type = str(r.get("park_type", "")) if hasattr(r, "get") else r["park_type"]
+
+    # 主要問題 / 缺資料提示（R2.9, R2.10）
+    if mk.has_data:
+        problem_html = "<br>".join(f"· {p}" for p in mk.signals_text())
+    else:
+        problem_html = f"· {risk_map.DATA_UNAVAILABLE}"
+
+    # 分數區塊：缺分數時顯示「資料尚未提供」而非數值（R2.10）
+    if mk.score is not None:
+        score_block = (f'{mk.score:.1f}'
+                       f'<span style="font-size:12px;color:#6B7280;">'
+                       f'分　（{mk.level}風險）</span>')
+    else:
+        score_block = (f'<span style="font-size:14px;color:#6B7280;">'
+                       f'{risk_map.DATA_UNAVAILABLE}</span>')
 
     popup_html = f"""
     <div style="font-family:'Microsoft JhengHei',sans-serif;min-width:210px;">
-      <div style="font-size:15px;font-weight:700;color:#1A1F29;">{r['park_name']}</div>
-      <div style="color:#6B7280;font-size:12px;">{r['district']}　·　{r['park_type']}</div>
+      <div style="font-size:15px;font-weight:700;color:#1A1F29;">{mk.name}</div>
+      <div style="color:#6B7280;font-size:12px;">{district}　·　{park_type}</div>
       <hr style="margin:6px 0;border-color:#E3E8EF;">
       <div style="font-size:22px;font-weight:800;color:{color};">
-        {r['risk_total']:.1f}
-        <span style="font-size:12px;color:#6B7280;">分　（{r['risk_level']}風險）</span>
+        {score_block}
       </div>
-      <div style="font-size:12px;margin-top:6px;color:#1A1F29;">主要問題：<br>{problem_html}</div>
+      <div style="font-size:12px;margin-top:6px;color:#1A1F29;">主要風險訊號：<br>{problem_html}</div>
     </div>
     """
+    radius = 6 + (mk.score or 0) / 10
     folium.CircleMarker(
-        location=[r["lat"], r["lng"]],
-        radius=6 + r["risk_total"] / 10,
+        location=[mk.lat, mk.lng],
+        radius=radius,
         color=color,
         fill=True,
         fill_color=color,
         fill_opacity=0.78,
         weight=2,
         popup=folium.Popup(popup_html, max_width=280),
-        tooltip=f"{r['park_name']}（{r['risk_total']:.0f} 分）",
+        tooltip=(f"{mk.name}（{mk.score:.0f} 分）" if mk.score is not None
+                 else f"{mk.name}（{risk_map.DATA_UNAVAILABLE}）"),
     ).add_to(fmap)
 
 # ---------- 高風險稽查建議路線 ----------

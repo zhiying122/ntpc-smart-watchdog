@@ -12,11 +12,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP = os.path.join(ROOT, "app")
 
 PAGES = [
-    ("主頁（排名表）", os.path.join(APP, "主頁.py")),
-    ("單園詳情", os.path.join(APP, "pages", "1_單園詳情.py")),
-    ("風險地圖", os.path.join(APP, "pages", "2_風險地圖.py")),
-    ("AI稽查建議", os.path.join(APP, "pages", "3_AI稽查建議.py")),
-    ("輿情分析", os.path.join(APP, "pages", "4_輿情分析.py")),
+    ("主頁（風險總覽）", os.path.join(APP, "主頁.py")),
+    ("案件調查", os.path.join(APP, "pages", "1_case.py")),
+    ("風險地圖", os.path.join(APP, "pages", "2_map.py")),
+    ("AI 決策支援", os.path.join(APP, "pages", "3_ai.py")),
+    ("輿情分析", os.path.join(APP, "pages", "4_sentiment.py")),
 ]
 
 failed = 0

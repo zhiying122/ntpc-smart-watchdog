@@ -26,3 +26,7 @@ streamlit>=1.31.0
 plotly>=5.18.0            # 雷達圖 / 互動圖表
 folium>=0.15.0           # Leaflet + OpenStreetMap 風險地圖
 streamlit-folium>=0.18.0 # 在 Streamlit 內嵌 folium 地圖
+
+# 測試（單元測試 + 屬性測試）
+pytest>=7.4.0
+hypothesis>=6.90.0

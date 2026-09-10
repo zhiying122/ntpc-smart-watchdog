@@ -11,6 +11,7 @@ import os
 import pandas as pd
 
 from src.forensic import analyze
+from src.models import RiskBreakdown
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROC = os.path.join(ROOT, "data", "processed")
@@ -112,6 +113,163 @@ def risk_level_percentile(series):
             return "中"
         return "低"
     return ranks.apply(level)
+
+
+def risk_level_four(total):
+    """
+    四級絕對分級（R10.2）：低／中／高／極高（critical）。
+    對齊 R2.1 的門檻並向上延伸出「極高」一級，供白盒 score() 輸出：
+      < 40 低、40–69 中、70–89 高、>= 90 極高。
+    百分位相對分級（risk_level_percentile）仍為稽查優先序排序主用（R10.6），
+    本四級為單一機構檢視（Inspector_Workspace, R5.1）的絕對等級標示。
+    """
+    if total >= 90:
+        return "極高"
+    if total >= 70:
+        return "高"
+    if total >= 40:
+        return "中"
+    return "低"
+
+
+# ---------- 缺資料中性值與責任 AI 常數（R10.4, R10.5, R18.2, R19.4）----------
+# 各分項「缺乏真實資料來源」時代入的中性值（0–100）。
+# 設計原則（R10.5）：中性值不得放大風險 —— 對每一分項，中性值 ≤ 100（該分項
+# 最大風險值），故以中性值代入所得 total 必不高於「該分項採用最大風險」的 total。
+# 選值與既有分項函式的缺值行為一致，確保 score() 與批次 build() 可解釋且一致：
+#   financial：缺逐筆明細/財報 → 0（該鑑識層視為中性、不貢獻風險）。
+#   penalty  ：查無裁罰紀錄 → 0（誠實：無資料不等於有裁罰）。
+#   eval     ：查無評鑑 → 30（略偏保守的中性值，仍遠低於「待改進 90」等高風險）。
+NEUTRAL_SUBSCORES = {
+    "financial": 0.0,
+    "penalty": 0.0,
+    "eval": 30.0,
+}
+
+# 責任 AI（R10.4, R19.4）：任何面向使用者的風險陳述皆附非空「風險不等於違法」聲明。
+NOT_ILLEGALITY_NOTICE = (
+    "風險不等於違法（Risk does not equal illegality）。"
+    "本分數僅為稽查優先序參考，非違法或舞弊之認定。"
+)
+
+
+def _is_missing(v):
+    """判定分項來源值是否「缺乏真實資料」（None 或 NaN 視為缺值）。"""
+    if v is None:
+        return True
+    try:
+        return bool(pd.isna(v))
+    except (TypeError, ValueError):
+        return False
+
+
+# ---------- 白盒混合風險評分：分項貢獻明細與可加性（R10.1–R10.3, R5.2）----------
+def _confidence_value(confidence):
+    """將傳入的可信度正規化為 0–100 的浮點數。
+
+    接受：None（視為 100 滿分）、數值、或帶 `.score` 屬性的 DataConfidence。
+    """
+    if confidence is None:
+        return 100.0
+    if hasattr(confidence, "score"):
+        confidence = confidence.score
+    try:
+        val = float(confidence)
+    except (TypeError, ValueError):
+        return 100.0
+    return max(0.0, min(val, 100.0))
+
+
+def score(entity, weights=None, confidence=None):
+    """輸出白盒風險分解 RiskBreakdown（R10.1–R10.3, R5.2）。
+
+    參數
+    ----
+    entity : dict | pandas.Series
+        單一機構的評分輸入，需可取得各分項原始分（見下）或其計算來源欄位。
+    weights : dict | None
+        分項顯示權重；預設沿用既有加權（financial 0.50 + penalty 0.34
+        + eval 0.16）。權重鍵須落在 {financial, penalty, eval}。
+    confidence : float | DataConfidence | None
+        資料可信度（0–100），寫入 RiskBreakdown.data_confidence 併同顯示（R18.3）。
+
+    回傳
+    ----
+    RiskBreakdown
+        total(0–100) + 各分項加權貢獻明細 contributions + level(低/中/高/極高)。
+        不變式：round(sum(contributions.values()), 1) == total（R5.2, R10.3）。
+
+    設計說明
+    --------
+    - 沿用既有分項評分函式（score_financial / score_penalty / score_eval），
+      確保與批次 build() 的計分一致、可解釋（R10.6）。
+    - 各分項貢獻 = 權重 × 分項分數；貢獻明細加總四捨五入至一位小數即為 total，
+      直接由貢獻回推 total 以保證可加性（雷達圖攤開即為總分，R5.2）。
+
+    缺資料中性處理（R10.5, R18.2）
+    ------------------------------
+    - 當某分項缺乏真實資料來源（既無 score_* 亦無可計算之來源欄位）時，以
+      NEUTRAL_SUBSCORES 的中性值代入，而非佔位放大風險。中性值 ≤ 100（該分項
+      最大風險），故缺資料所得 total 必 ≤「該分項採用最大風險值」之 total
+      （Property 30 上界性質）。
+    - data_confidence 僅作為併同顯示的資料可信度（R18.3），不參與 total/level
+      的計算 —— 低可信度不會僅因其低而推高風險或等級（R18.2, Property 30）。
+
+    責任 AI（R10.4, R19.4）
+    -----------------------
+    - 每個 RiskBreakdown 皆帶非空 not_illegality_notice「風險不等於違法」聲明。
+    """
+    if weights is None:
+        weights = WEIGHTS
+
+    # entity 可為 dict 或 pandas.Series；統一以 .get 取值。
+    get = entity.get if hasattr(entity, "get") else (lambda k, d=None: entity[k] if k in entity else d)
+
+    def _resolve(subkey, precomputed_key, computer):
+        """取分項原始分（0–100）。
+
+        優先取已算好的 score_*；否則以來源欄位即時計算；若來源亦缺
+        （computer 回傳缺值），則代入該分項的中性值（R10.5）而不放大風險。
+        """
+        pre = get(precomputed_key)
+        if not _is_missing(pre):
+            return float(pre)
+        computed = computer()
+        if _is_missing(computed):
+            return NEUTRAL_SUBSCORES[subkey]
+        return float(computed)
+
+    raw_scores = {
+        "financial": _resolve("financial", "score_financial",
+                              lambda: score_financial(entity)),
+        "penalty": _resolve("penalty", "score_penalty",
+                            lambda: score_penalty(get("penalty_count"))),
+        "eval": _resolve("eval", "score_eval",
+                         lambda: score_eval(get("eval_grade"))),
+    }
+
+    # 各分項加權貢獻；只計入 weights 有定義的分項。
+    contributions = {
+        k: round(weights[k] * raw_scores[k], 4)
+        for k in weights if k in raw_scores
+    }
+
+    # total 直接由貢獻回推 → 保證 round(sum(contributions.values()),1) == total。
+    # data_confidence 不進入此計算 → 低可信度不會單獨推高風險（R18.2）。
+    total = round(sum(contributions.values()), 1)
+    total = max(0.0, min(total, 100.0))
+
+    # 責任 AI：確保聲明非空，即使呼叫端未提供亦落實 R10.4/R19.4。
+    notice = NOT_ILLEGALITY_NOTICE
+
+    return RiskBreakdown(
+        total=total,
+        level=risk_level_four(total),
+        contributions=contributions,
+        weights={k: weights[k] for k in weights if k in raw_scores},
+        not_illegality_notice=notice,
+        data_confidence=_confidence_value(confidence),
+    )
 
 
 EXTERNAL = os.path.join(ROOT, "data", "external")
