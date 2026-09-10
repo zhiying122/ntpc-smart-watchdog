@@ -10,7 +10,8 @@
 import os
 import pandas as pd
 
-from src.forensic import analyze
+from src.forensic import analyze, cross_metric_flags
+from src.penalty_nlp import penalty_severity_score, classify_penalty_text
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROC = os.path.join(ROOT, "data", "processed")
@@ -58,17 +59,31 @@ def score_financial(row):
         deficit_ratio = abs(surplus) / income
         deficit_pts = min(deficit_ratio * 1000, 100)  # 短絀達收入10%即滿分
 
-    score = (0.25 * benford + 0.20 * beneish + 0.25 * iforest
-             + 0.10 * ratio_pts + 0.10 * yoy_pts + 0.10 * deficit_pts)
-    return round(min(score, 100), 1)
+    base = (0.25 * benford + 0.20 * beneish + 0.25 * iforest
+            + 0.10 * ratio_pts + 0.10 * yoy_pts + 0.10 * deficit_pts)
+
+    # 交叉指標關係加成（鑑識會計核心，可解釋、有上限）：
+    #   單位幼兒收入偏離同儕 +12；收入-支出成長背離 +10。
+    #   這是「指標之間關係不合理」的訊號，比單一門檻更有說服力。
+    cross_bonus = 0
+    if row.get("cross_unit_income_outlier"):
+        cross_bonus += 12
+    if row.get("cross_rev_exp_divergence"):
+        cross_bonus += 10
+
+    return round(min(base + cross_bonus, 100), 1)
 
 
-def score_penalty(penalty_count):
-    """裁罰分(0-100)：0次=0, 1次=50, 2次=80, 3次以上=100。"""
-    if pd.isna(penalty_count):
-        return 0
-    c = int(penalty_count)
-    return {0: 0, 1: 50, 2: 80}.get(c, 100)
+def score_penalty(row):
+    """
+    裁罰分(0-100)：改用「裁罰性質分類 + 嚴重度」，而非純次數。
+    2 次收費違規應遠重於 2 次行政缺失——看違規性質，不只看次數。
+    詳見 src/penalty_nlp.py。相容舊呼叫：也接受單一 penalty_count 純量。
+    """
+    if isinstance(row, (int, float)):
+        # 舊介面相容：只給次數時，無事由文字可分類
+        return penalty_severity_score(row, "")
+    return penalty_severity_score(row.get("penalty_count"), row.get("penalty_reason"))
 
 
 def score_eval(grade):
@@ -123,8 +138,19 @@ def _merge_external(df):
     pen_path = os.path.join(EXTERNAL, "penalties.csv")
     if os.path.exists(pen_path):
         pen = pd.read_csv(pen_path).drop_duplicates("park_name", keep="first")
-        df = df.merge(pen[["park_name", "penalty_count", "eval_grade"]],
-                      on="park_name", how="left")
+        pen_cols = ["park_name", "penalty_count", "eval_grade"]
+        if "penalty_reason" in pen.columns:
+            pen_cols.append("penalty_reason")
+        df = df.merge(pen[pen_cols], on="park_name", how="left")
+    # 幼兒人數（核定招生數，來源：全國教保資訊網，逐間人工查證併分班合計）
+    enr_path = os.path.join(EXTERNAL, "enrollment.csv")
+    if os.path.exists(enr_path):
+        enr = pd.read_csv(enr_path, dtype={"park_id": str})
+        enr = enr.drop_duplicates("park_id", keep="first")
+        enr["enrollment"] = pd.to_numeric(enr["approved_capacity"], errors="coerce")
+        df["park_id"] = df["park_id"].astype(str)
+        df = df.merge(enr[["park_id", "enrollment"]], on="park_id", how="left")
+
     # 座標
     geo_path = os.path.join(ROOT, "data", "processed", "geocoded.csv")
     if os.path.exists(geo_path):
@@ -152,12 +178,22 @@ def build(df):
     # 誠實預設：非營利園無裁罰資料 → 0 次；評鑑無資料 → 空字串（介面顯示 —）。
     df["penalty_count"] = df["penalty_count"].fillna(0).astype(int)
     df["eval_grade"] = df["eval_grade"].fillna("")
+    # 裁罰事由文字（供分類/嚴重度用）；非營利園或無裁罰者為空字串
+    if "penalty_reason" not in df.columns:
+        df["penalty_reason"] = ""
+    df["penalty_reason"] = df["penalty_reason"].fillna("")
+    # 裁罰主類別（收費/人力/安全/教保/行政），供前端與派工重點使用
+    df["penalty_category"] = df.apply(
+        lambda r: classify_penalty_text(r.get("penalty_reason"))["primary"] or "", axis=1)
     # 班佛樣本數：非營利園無逐筆明細 → 0（介面 int 顯示用）
     if "benford_sample_n" in df.columns:
         df["benford_sample_n"] = df["benford_sample_n"].fillna(0).astype(int)
 
+    # 交叉指標關係規則（需 enrollment 併入後才能算每生單位收入）
+    df = cross_metric_flags(df)
+
     df["score_financial"] = df.apply(score_financial, axis=1)
-    df["score_penalty"] = df["penalty_count"].apply(score_penalty)
+    df["score_penalty"] = df.apply(score_penalty, axis=1)
     df["score_eval"] = df["eval_grade"].apply(score_eval)
 
     df["risk_total"] = (
@@ -186,7 +222,12 @@ def main():
             "benford_chi2", "benford_pvalue", "benford_significant",
             "beneish_score", "beneish_egdi", "beneish_tata",
             "iforest_score", "iforest_explain",
-            "expense_yoy_pct", "penalty_count", "eval_grade",
+            "expense_yoy_pct", "income_yoy_pct",
+            "enrollment", "income_per_child", "income_per_child_z",
+            "cross_unit_income_outlier", "rev_exp_growth_gap",
+            "cross_rev_exp_divergence", "cross_tuition_share_z",
+            "penalty_count", "penalty_reason",
+            "penalty_category", "eval_grade",
             "score_financial", "score_penalty", "score_eval",
             "risk_total", "risk_level", "risk_level_abs"]
     cols = [c for c in cols if c in out.columns]

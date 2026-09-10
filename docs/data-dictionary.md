@@ -58,7 +58,16 @@ radar_cols = ["score_financial", "score_penalty", "score_eval", "score_sentiment
 | `iforest_explain` | 異常主因(前3特徵) | 字典字串，做AI輸入用 |
 | `expense_income_ratio` | 收支比 | >1 代表入不敷出 |
 | `expense_yoy_pct` | 支出年增率(%) | 暴增暴減看這個 |
+| `income_yoy_pct` | 收入年增率(%) | 交叉規則用 |
+| `enrollment` | 核定招生數 | 全國教保資訊網，分班已合計 |
+| `income_per_child` | 每生單位收入 | 收入 ÷ 核定人數 |
+| `income_per_child_z` | 每生收入同儕 z 分數 | 同 park_type 分群 |
+| `cross_unit_income_outlier` | [F7] 單位收入偏離同儕 | z≥1.5 觸發 |
+| `rev_exp_growth_gap` | 收入年增 − 支出年增(pp) | 交叉背離用 |
+| `cross_rev_exp_divergence` | [F8] 收入-支出成長背離 | |≥25pp| 觸發 |
 | `penalty_count` | 裁罰次數 | |
+| `penalty_reason` | 裁罰事由（文字） | 供分類/嚴重度用 |
+| `penalty_category` | 裁罰主類別 | 收費/人力/安全/教保/行政（見 `src/penalty_nlp.py`）|
 | `eval_grade` | 評鑑等第 | |
 
 ## 顏色建議（地圖 / 排名）

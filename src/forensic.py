@@ -291,6 +291,74 @@ def analyze(df):
     return df
 
 
+# ---------- 交叉指標關係規則（鑑識會計核心：看指標之間的關係，不看單一門檻）----------
+def cross_metric_flags(df):
+    """
+    計算「交叉指標關係」欄位與紅旗。回傳新增欄位後的 df。
+    鑑識會計的精神：單一數字高不代表異常，指標之間的「關係」不合理才是訊號。
+
+    需要欄位：income_actual, expense_actual, tuition_actual, enrollment,
+              income_yoy_pct, expense_yoy_pct。缺 enrollment 的園（如查無現況者）
+              人數相關指標為 NaN，對應紅旗自動不觸發（誠實：不硬編）。
+
+    產出欄位：
+      income_per_child            每生單位收入 = 收入 / 核定人數
+      income_per_child_z          每生單位收入在「同類型同儕」中的 z 分數
+      cross_unit_income_outlier   [規則X1] 單位幼兒收入顯著偏離同儕（|z|>=1.5 且偏高）
+      cross_rev_exp_divergence    [規則X2] 收入-支出成長背離（收入年增遠低/高於支出年增）
+      rev_exp_growth_gap          收入年增率 - 支出年增率（百分點）
+      cross_tuition_share_z       學雜費占收入比在同儕中的 z（結構異常輔助）
+    """
+    df = df.copy()
+
+    # --- 每生單位收入 ---
+    if "enrollment" in df.columns:
+        enr = pd.to_numeric(df["enrollment"], errors="coerce")
+        inc = pd.to_numeric(df["income_actual"], errors="coerce")
+        df["income_per_child"] = (inc / enr).where(enr > 0)
+    else:
+        df["income_per_child"] = pd.NA
+
+    # --- 規則X1：單位幼兒收入 vs 同儕（同 park_type 分群，中位數 + 標準差）---
+    df["income_per_child_z"] = pd.NA
+    df["cross_unit_income_outlier"] = False
+    if "park_type" in df.columns:
+        for ptype, idx in df.groupby("park_type").groups.items():
+            grp = df.loc[idx]
+            s = pd.to_numeric(grp["income_per_child"], errors="coerce").dropna()
+            if len(s) < 3:
+                continue
+            med = s.median()
+            std = s.std(ddof=0) or 1e-9
+            z = (pd.to_numeric(grp["income_per_child"], errors="coerce") - med) / std
+            df.loc[idx, "income_per_child_z"] = z.round(2)
+            # 偏「高」端 1.5σ 以上：收到的錢相對每個孩子異常多，值得查金流結構
+            df.loc[idx, "cross_unit_income_outlier"] = (z >= 1.5).fillna(False)
+
+    # --- 規則X2：收入-支出成長背離 ---
+    # 收入大幅成長但支出沒跟上（或相反），是收支結構突變的訊號。
+    inc_yoy = pd.to_numeric(df.get("income_yoy_pct"), errors="coerce")
+    exp_yoy = pd.to_numeric(df.get("expense_yoy_pct"), errors="coerce")
+    df["rev_exp_growth_gap"] = (inc_yoy - exp_yoy).round(2)
+    # 背離超過 25 個百分點視為關係異常（暫定門檻，收支應大致同步成長）
+    df["cross_rev_exp_divergence"] = df["rev_exp_growth_gap"].abs() >= 25
+
+    # --- 輔助：學雜費占收入比的同儕 z（結構異常）---
+    df["cross_tuition_share_z"] = pd.NA
+    if "tuition_income_ratio" in df.columns and "park_type" in df.columns:
+        for ptype, idx in df.groupby("park_type").groups.items():
+            grp = df.loc[idx]
+            s = pd.to_numeric(grp["tuition_income_ratio"], errors="coerce").dropna()
+            if len(s) < 3:
+                continue
+            med = s.median()
+            std = s.std(ddof=0) or 1e-9
+            z = (pd.to_numeric(grp["tuition_income_ratio"], errors="coerce") - med) / std
+            df.loc[idx, "cross_tuition_share_z"] = z.round(2)
+
+    return df
+
+
 def benford_population(df):
     """
     全體宏觀班佛檢定（簡報主圖）：把所有幼兒園的所有財務數字合起來，

@@ -819,11 +819,32 @@ def risk_factors(row):
         factors.append(("多維財務異常（孤立森林）",
                         "多項財務特徵綜合判定為離群",
                         f"孤立森林異常分 = {iforest:.1f}"))
+    # 交叉指標關係因子（鑑識會計核心）
+    if row.get("cross_unit_income_outlier"):
+        ipc = row.get("income_per_child")
+        z = row.get("income_per_child_z")
+        ipc_txt = f"{float(ipc):,.0f} 元" if pd.notna(ipc) else "—"
+        z_txt = f"{float(z):+.1f}σ" if pd.notna(z) else "—"
+        factors.append(("單位幼兒收入偏離同儕",
+                        "每生收入顯著高於同類型同儕，金流結構值得查核",
+                        f"每生收入 = {ipc_txt}；偏離同儕 {z_txt}"))
+    if row.get("cross_rev_exp_divergence"):
+        gap = row.get("rev_exp_growth_gap")
+        gap_txt = f"{float(gap):+.1f}" if pd.notna(gap) else "—"
+        factors.append(("收入-支出成長背離",
+                        "收入與支出的年度成長幅度明顯不同步，收支結構可能突變",
+                        f"收入年增 − 支出年增 = {gap_txt} 個百分點"))
+
     pen = row.get("penalty_count")
     if pd.notna(pen) and int(pen) > 0:
-        factors.append(("既有裁罰紀錄",
-                        f"已有 {int(pen)} 次裁罰，屬已知風險標的",
-                        f"裁罰次數 = {int(pen)}"))
+        pcat = row.get("penalty_category")
+        preason = row.get("penalty_reason")
+        cat_txt = f"（{pcat}風險）" if isinstance(pcat, str) and pcat else ""
+        why = f"已有 {int(pen)} 次裁罰{cat_txt}，屬已知風險標的"
+        evidence = f"裁罰次數 = {int(pen)}"
+        if isinstance(preason, str) and preason:
+            evidence += f"；事由：{preason}"
+        factors.append((f"既有裁罰紀錄{cat_txt}", why, evidence))
 
     if not factors:
         empty_state("未偵測到顯著風險因子",
@@ -900,6 +921,16 @@ def _rf_penalty(r):
     return pd.notna(v) and int(v) > 0
 
 
+def _rf_unit_income(r):
+    # 單位幼兒收入顯著偏離同儕（交叉指標關係規則）
+    return bool(r.get("cross_unit_income_outlier"))
+
+
+def _rf_rev_exp(r):
+    # 收入-支出成長背離（交叉指標關係規則）
+    return bool(r.get("cross_rev_exp_divergence"))
+
+
 RED_FLAGS = [
     ("F1", "收支結構失衡",
      _rf_ratio,
@@ -925,6 +956,15 @@ RED_FLAGS = [
      _rf_penalty,
      lambda r: f"裁罰次數 = {int(r['penalty_count'])}",
      "裁罰次數 = 0"),
+    ("F7", "單位幼兒收入偏離同儕",
+     _rf_unit_income,
+     lambda r: (f"每生收入 {float(r['income_per_child']):,.0f} 元／偏離同儕 "
+                f"{float(r['income_per_child_z']):+.1f}σ"),
+     "同儕 ±1.5σ 內"),
+    ("F8", "收入-支出成長背離",
+     _rf_rev_exp,
+     lambda r: f"收入年增 − 支出年增 = {float(r['rev_exp_growth_gap']):+.1f} 個百分點",
+     "背離 < 25 個百分點"),
 ]
 
 
@@ -988,6 +1028,7 @@ def peer_compare(df, row, metrics=None):
     """
     if metrics is None:
         metrics = [
+            ("income_per_child", "每生單位收入", True, lambda v: f"{v:,.0f}"),
             ("expense_income_ratio", "收支比", True, lambda v: f"{v:.3f}"),
             ("benford_mad", "班佛偏離度", True, lambda v: f"{v:.4f}"),
             ("beneish_score", "Beneish 操縱分", True, lambda v: f"{v:.1f}"),
@@ -1161,7 +1202,16 @@ def confusion_matrix_html(stats):
 # ---- 稽查派工卡（單列，供派工清單使用）----
 def dispatch_reason(row):
     """為派工清單產生「為何要查」的白話理由（取觸發紅旗的前幾條）。"""
-    flags = [name for _c, name, _d, _n, hit in red_flags_for(row) if hit]
+    flags = []
+    for code, name, _d, _n, hit in red_flags_for(row):
+        if not hit:
+            continue
+        # 裁罰紅旗補上主類別，讓「為何要查」更具體（收費/人力/安全…）
+        if code == "F6":
+            cat = row.get("penalty_category")
+            if isinstance(cat, str) and cat:
+                name = f"{name}（{cat}風險）"
+        flags.append(name)
     if not flags:
         return "綜合風險分偏高，建議一併複核"
     return "、".join(flags[:3])
@@ -1178,7 +1228,31 @@ def audit_focus(row):
     if "F2" in fset or "F3" in fset:
         focus.append("原始帳冊與明細分類帳")
     if "F6" in fset:
-        focus.append("前次裁罰改善情形")
+        # 依裁罰主類別給出對應查核重點（比「前次裁罰改善情形」更精準）
+        focus.append(_penalty_focus(row))
+    if "F7" in fset:
+        focus.append("收入金流結構與每生收費合理性")
+    if "F8" in fset:
+        focus.append("收入與支出年度變動原因說明")
     if not focus:
         focus.append("財務報表與收費作業")
     return "、".join(dict.fromkeys(focus))
+
+
+# 裁罰主類別 → 建議查核重點（與 src/penalty_nlp.py 的 focus 對齊）
+_PENALTY_FOCUS_MAP = {
+    "安全": "建物公共安全與設施檢查",
+    "收費": "收費備查與退費、收據憑證",
+    "人力": "教保人員資格與師生比",
+    "教保": "教保服務內容與餐點衛生",
+    "行政": "文件申報與限期改善情形",
+    "未分類": "裁罰事由與改善情形",
+}
+
+
+def _penalty_focus(row):
+    """依 penalty_category 欄位給裁罰查核重點；缺欄位時回退到通用說法。"""
+    cat = row.get("penalty_category")
+    if isinstance(cat, str) and cat in _PENALTY_FOCUS_MAP:
+        return _PENALTY_FOCUS_MAP[cat]
+    return "前次裁罰改善情形"

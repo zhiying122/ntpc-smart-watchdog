@@ -183,6 +183,70 @@ with tab_trend:
 # 功能8：裁罰預測驗證
 # ===========================================================================
 with tab_valid:
+    # ---- 裁罰性質分類彙整（分類+嚴重度，取代純次數）----
+    common.section("裁罰性質分類（不只算次數）", "alert")
+    st.markdown(
+        f"<div style='color:{common.MUTED};font-size:.86rem;margin:-4px 0 10px;'>"
+        "把裁罰事由用規則式關鍵字分到五大稽查類別（收費／人力／安全／教保／行政），"
+        "不同性質給不同嚴重度——2 次收費違規遠重於 2 次行政缺失。"
+        "這是鑑識會計「看違規性質而非只看次數」的落地。</div>",
+        unsafe_allow_html=True,
+    )
+    penalized = df[pd.to_numeric(df["penalty_count"], errors="coerce").fillna(0) > 0]
+    if len(penalized) == 0 or "penalty_category" not in df.columns:
+        common.empty_state("尚無可分類的裁罰紀錄", "目前資料集內無裁罰事由文字可供分類。", "check")
+    else:
+        cat_order = ["安全", "收費", "人力", "教保", "行政", "未分類"]
+        cat_sev = {"安全": 90, "收費": 80, "人力": 70, "教保": 55, "行政": 35, "未分類": 50}
+        counts = penalized["penalty_category"].fillna("未分類").replace("", "未分類")
+        vc = counts.value_counts().to_dict()
+        body = ""
+        for cat in cat_order:
+            n = vc.get(cat, 0)
+            if n == 0:
+                continue
+            sev = cat_sev.get(cat, 50)
+            sev_c = (common.RISK["high"][0] if sev >= 70
+                     else (common.RISK["medium"][0] if sev >= 50 else common.INK_2))
+            body += (
+                "<tr>"
+                f"<td class='l'>{cat}</td>"
+                f"<td style='color:{sev_c};font-weight:600;'>{sev}</td>"
+                f"<td style='font-weight:600;'>{n}</td>"
+                "</tr>"
+            )
+        st.markdown(
+            "<table class='sw-table'><thead><tr>"
+            "<th class='l'>裁罰類別</th><th>嚴重度基準</th><th>機構數</th>"
+            f"</tr></thead><tbody>{body}</tbody></table>",
+            unsafe_allow_html=True,
+        )
+        # 逐間列出：事由 → 主類別 → 裁罰分
+        body2 = ""
+        for _, r in penalized.sort_values("score_penalty", ascending=False).iterrows():
+            cat = r.get("penalty_category") or "未分類"
+            body2 += (
+                "<tr>"
+                f"<td class='l'>{r['park_name']}</td>"
+                f"<td class='l' style='color:{common.INK_2};'>{r.get('penalty_reason','') or '—'}</td>"
+                f"<td class='l'>{cat}</td>"
+                f"<td>{int(r['penalty_count'])}</td>"
+                f"<td style='font-weight:600;'>{float(r['score_penalty']):.0f}</td>"
+                "</tr>"
+            )
+        st.markdown(
+            "<table class='sw-table'><thead><tr>"
+            "<th class='l'>機構名稱</th><th class='l'>裁罰事由</th>"
+            "<th class='l'>主類別</th><th>次數</th><th>裁罰風險分</th>"
+            f"</tr></thead><tbody>{body2}</tbody></table>",
+            unsafe_allow_html=True,
+        )
+        common.callout(
+            "<b>為什麼不只算次數</b><br>"
+            "裁罰風險分 = 主類別嚴重度基準 +（次數−1）×10。"
+            "例如「超收幼生與收費違規」2 次 = 收費基準 80 + 10 = 90 分；"
+            "而「財務申報缺失」1 次 = 行政基準 35 分。同樣是裁罰，權重明顯拉開。")
+
     common.section("裁罰預測驗證（模型可信度）", "check")
     st.markdown(
         f"<div style='color:{common.MUTED};font-size:.86rem;margin:-4px 0 10px;'>"

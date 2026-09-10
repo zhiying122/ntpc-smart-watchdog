@@ -19,10 +19,14 @@
 """
 import os
 import random
+import sys
 
 import pandas as pd
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+from src.penalty_nlp import penalty_severity_score, classify_penalty_text  # noqa: E402
+from src.forensic import cross_metric_flags  # noqa: E402
 EXT = os.path.join(ROOT, "data", "external")
 PROC = os.path.join(ROOT, "data", "processed")
 
@@ -50,8 +54,9 @@ DISTRICT_COORD = {
 }
 
 
-def score_penalty(c):
-    return {0: 0, 1: 50, 2: 80}.get(int(c), 100)
+def score_penalty(c, reason=""):
+    """裁罰分改用「分類+嚴重度」，與 src/risk_score.py 同一套邏輯。"""
+    return penalty_severity_score(c, reason)
 
 
 def score_eval(grade):
@@ -100,6 +105,8 @@ def build_year(addresses, penalties, year, drift=0.0,
         pen = pen_map.get(name, {})
         penalty_count = int(pen.get("penalty_count", 0) or 0)
         eval_grade = pen.get("eval_grade", "") or ""
+        penalty_reason = pen.get("penalty_reason", "") or ""
+        penalty_category = classify_penalty_text(penalty_reason)["primary"] or ""
 
         # ---- 合成財務數字（規模隨機，含少數異常園）----
         base_income = random.randint(18_000_000, 42_000_000)
@@ -132,6 +139,9 @@ def build_year(addresses, penalties, year, drift=0.0,
         ])
 
         yoy = round(random.gauss(4.0, 18.0), 2)  # 支出年增率(%)
+        # 收入年增率：多數與支出年增接近（收支同步），少數刻意背離（交叉規則X2示範）
+        income_yoy = round(yoy + random.gauss(0.0, 12.0), 2)
+        tuition_income_ratio = round(tuition / income, 4) if income else None
 
         # 注意：score_financial 需要「班佛組內相對分」，那是全體層級才算得出來，
         # 因此財務分統一在 finalize() 重算，這裡先不算。
@@ -149,28 +159,46 @@ def build_year(addresses, penalties, year, drift=0.0,
             "beneish_score": beneish_score, "beneish_egdi": beneish_egdi,
             "beneish_tata": beneish_tata,
             "iforest_score": iforest_score, "iforest_explain": feat,
-            "expense_yoy_pct": yoy,
+            "expense_yoy_pct": yoy, "income_yoy_pct": income_yoy,
+            "tuition_income_ratio": tuition_income_ratio,
             "penalty_count": penalty_count, "eval_grade": eval_grade,
-            "score_penalty": score_penalty(penalty_count),
+            "penalty_reason": penalty_reason, "penalty_category": penalty_category,
+            "score_penalty": score_penalty(penalty_count, penalty_reason),
             "score_eval": score_eval(eval_grade),
         })
     return pd.DataFrame(rows)
 
 
 def finalize(df):
-    """全體層級計算：班佛相對分、財務分、輿情分、座標、總分、等級。"""
+    """全體層級計算：班佛相對分、交叉指標、財務分、輿情分、座標、總分、等級。"""
     # 班佛分數用組內 MAD 百分位（複刻 forensic.analyze 的相對排名做法）
     df["benford_score"] = (df["benford_mad"].rank(pct=True) * 100).round(0)
 
-    # 重算財務分（現在有正確的 benford_score）
+    # 併入真實幼兒人數（enrollment.csv，公校 park_id 對得上），再算交叉指標
+    enr_path = os.path.join(EXT, "enrollment.csv")
+    if os.path.exists(enr_path):
+        enr = pd.read_csv(enr_path, dtype={"park_id": str})
+        enr = enr.drop_duplicates("park_id", keep="first")
+        enr["enrollment"] = pd.to_numeric(enr["approved_capacity"], errors="coerce")
+        df["park_id"] = df["park_id"].astype(str)
+        df = df.merge(enr[["park_id", "enrollment"]], on="park_id", how="left")
+    df = cross_metric_flags(df)
+
+    # 重算財務分（含班佛相對分 + 交叉指標關係加成，與 src/risk_score.py 同規則）
     def sf(r):
-        return score_financial(
+        base = score_financial(
             benford=r["benford_score"], beneish=r["beneish_score"],
             iforest=r["iforest_score"], ratio=r["expense_income_ratio"],
             yoy=r["expense_yoy_pct"],
             deficit_ratio=(abs(r["surplus"]) / r["income_actual"]
                            if r["surplus"] < 0 and r["income_actual"] else 0.0),
         )
+        bonus = 0
+        if r.get("cross_unit_income_outlier"):
+            bonus += 12
+        if r.get("cross_rev_exp_divergence"):
+            bonus += 10
+        return round(min(base + bonus, 100), 1)
     df["score_financial"] = df.apply(sf, axis=1)
 
     # 輿情分：假的負面比例（少數園偏高當亮點），對齊 score_sentiment 規則
@@ -202,8 +230,11 @@ OUT_COLS = ["park_id", "park_name", "park_type", "year", "district", "lat", "lng
             "expense_income_ratio", "benford_mad", "benford_sample_n", "benford_score",
             "benford_chi2", "benford_pvalue", "benford_significant",
             "beneish_score", "beneish_egdi", "beneish_tata",
-            "iforest_score", "iforest_explain", "expense_yoy_pct",
-            "penalty_count", "eval_grade",
+            "iforest_score", "iforest_explain", "expense_yoy_pct", "income_yoy_pct",
+            "enrollment", "income_per_child", "income_per_child_z",
+            "cross_unit_income_outlier", "rev_exp_growth_gap",
+            "cross_rev_exp_divergence", "cross_tuition_share_z",
+            "penalty_count", "penalty_reason", "penalty_category", "eval_grade",
             "score_financial", "score_penalty", "score_eval", "score_sentiment",
             "neg_ratio", "risk_total", "risk_level", "risk_level_abs"]
 

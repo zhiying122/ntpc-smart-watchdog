@@ -110,9 +110,42 @@ with tab_ev:
               help="多維財務特徵整體異常度")
     m5, m6, m7, m8 = st.columns(4)
     m5.metric("年度支出增減", common.fmt_pct(row["expense_yoy_pct"]))
-    m6.metric("裁罰次數", f"{int(row['penalty_count'])}")
+    _pcat = row.get("penalty_category") if "penalty_category" in row.index else ""
+    _pcat = str(_pcat) if pd.notna(_pcat) else ""
+    m6.metric("裁罰次數", f"{int(row['penalty_count'])}",
+              delta=f"{_pcat}風險" if _pcat else None,
+              delta_color="off",
+              help="括號為裁罰主類別（依裁罰事由分類，見鑑識分析頁）"
+              if _pcat else "無裁罰紀錄")
     m7.metric("評鑑等第", str(row["eval_grade"]) if str(row["eval_grade"]) else "無資料")
     m8.metric("班佛樣本數", f"{int(row['benford_sample_n'])}")
+
+    # ---- 交叉指標關係（鑑識會計核心：看指標之間的關係）----
+    common.section("交叉指標關係", "shield")
+    st.caption("鑑識會計不看單一數字高低，而看指標之間的關係是否合理。"
+               "每生收入偏離同儕、收入與支出成長背離，都是關係型異常訊號。")
+    x1, x2, x3 = st.columns(3)
+    ipc = row.get("income_per_child") if "income_per_child" in row.index else None
+    ipc_z = row.get("income_per_child_z") if "income_per_child_z" in row.index else None
+    gap = row.get("rev_exp_growth_gap") if "rev_exp_growth_gap" in row.index else None
+    enr = row.get("enrollment") if "enrollment" in row.index else None
+    if pd.notna(ipc):
+        x1.metric("每生單位收入", f"{float(ipc):,.0f} 元",
+                  delta=(f"偏離同儕 {float(ipc_z):+.1f}σ" if pd.notna(ipc_z) else None),
+                  delta_color="inverse",
+                  help="收入 ÷ 核定招生數，與同類型同儕比較")
+    else:
+        x1.metric("每生單位收入", "無人數資料",
+                  help="教保網查無此園現況（疑整併/改制），故無核定人數")
+    x2.metric("核定招生數", f"{int(enr)} 人" if pd.notna(enr) else "—",
+              help="來源：全國教保資訊網，分班已合計")
+    if pd.notna(gap):
+        x3.metric("收入-支出成長差", f"{float(gap):+.1f} pp",
+                  delta="背離" if abs(float(gap)) >= 25 else "同步",
+                  delta_color="inverse" if abs(float(gap)) >= 25 else "off",
+                  help="收入年增率 − 支出年增率，超過 ±25 個百分點視為背離")
+    else:
+        x3.metric("收入-支出成長差", "—", help="缺年度資料")
 
     common.section("財務概況", "case")
     f1, f2, f3, f4 = st.columns(4)
