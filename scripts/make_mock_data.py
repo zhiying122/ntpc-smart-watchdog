@@ -1,7 +1,20 @@
 """
-產生假資料 kindergartens_latest.csv（組員線介面開發用）
+⚠️⚠️⚠️ 危險：這支腳本會用「合成的假財務數字」覆蓋真實資料！⚠️⚠️⚠️
+================================================================
+本腳本輸出的檔名（kindergartens.csv / kindergartens_latest.csv）與
+真實管線 src/risk_score.py 的產物**完全相同**。若誤執行，會把由真實
+PDF/OCR 抽取、經真引擎運算的資料，默默換成亂數合成的假資料。
+
+因此本腳本已加防呆：預設「拒絕執行」，必須明確加 --force 才會覆蓋。
+真實資料請一律用：  python -m src.risk_score   （或 scripts/rebuild_all.py）
+
+此外本檔仍採「舊四項制（含輿情 sentiment）」與 src/risk_score.py 現行
+三項制不一致，僅保留作為介面開發歷史備援，正式流程請勿使用。
+----------------------------------------------------------------
+
+產生假資料 kindergartens_latest.csv（組員線介面開發用｜已停用於正式流程）
 ======================================================
-用途：讓「介面與 AI 呈現」線在隊長真資料出爐前先全速開工。
+用途：讓「介面與 AI 呈現」線在隊長真資料出爐前先全速開工（歷史用途）。
 欄位完全對齊 docs/data-dictionary.md 與 src/risk_score.py 的輸出契約，
 真資料一來，直接用同名檔覆蓋即可，介面不需改動。
 
@@ -280,4 +293,14 @@ def main():
 
 
 if __name__ == "__main__":
+    # 防呆：預設拒絕執行，避免假資料覆蓋真實 CSV。必須明確加 --force。
+    if "--force" not in sys.argv:
+        print("=" * 64)
+        print("⚠  已中止：make_mock_data.py 會用假資料覆蓋真實 CSV。")
+        print("   正式流程請用：python -m src.risk_score")
+        print("   確實要產生假資料（僅限介面開發）才加參數：")
+        print("       python scripts/make_mock_data.py --force")
+        print("=" * 64)
+        sys.exit(1)
+    print("⚠  --force 已指定：即將以假資料覆蓋 kindergartens*.csv …")
     main()

@@ -1,7 +1,7 @@
 """
 權重敏感度分析（堵住「權重憑什麼」的質疑）
 ================================================
-評審最愛問：「你的財務40%/裁罰30% 權重憑什麼？」
+評審最愛問：「你的財務50%/裁罰34% 權重憑什麼？」
 最專業的答案不是硬凹，而是證明：「就算大幅改動權重，高風險園的排名依然穩定，
 所以結論對權重不敏感。」
 
@@ -21,20 +21,22 @@ from src.forensic import analyze
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROC = os.path.join(ROOT, "data", "processed")
 
-# 多組權重情境 (financial, penalty, eval, sentiment)
+# 多組權重情境 (financial, penalty, eval)。現行三項制，基準＝引擎實際權重 50/34/16。
+# 輿情資料源尚未接入故不納入計分，敏感度分析亦同步改為三項制。
+BASE_NAME = "基準(50/34/16)"
 SCENARIOS = {
-    "基準(40/30/15/15)": (0.40, 0.30, 0.15, 0.15),
-    "均等(25/25/25/25)": (0.25, 0.25, 0.25, 0.25),
-    "重財務(60/20/10/10)": (0.60, 0.20, 0.10, 0.10),
-    "重裁罰(20/50/15/15)": (0.20, 0.50, 0.15, 0.15),
-    "輕財務(20/40/20/20)": (0.20, 0.40, 0.20, 0.20),
+    BASE_NAME: (0.50, 0.34, 0.16),
+    "均等(33/33/33)": (1 / 3, 1 / 3, 1 / 3),
+    "重財務(70/20/10)": (0.70, 0.20, 0.10),
+    "重裁罰(30/55/15)": (0.30, 0.55, 0.15),
+    "輕財務(25/50/25)": (0.25, 0.50, 0.25),
 }
 
 
 def _recompute_total(df, w):
-    wf, wp, we, ws = w
+    wf, wp, we = w
     return (wf * df["score_financial"] + wp * df["score_penalty"]
-            + we * df["score_eval"] + ws * df["score_sentiment"]).round(1)
+            + we * df["score_eval"]).round(1)
 
 
 def main(top_n=5):
@@ -52,7 +54,7 @@ def main(top_n=5):
         ranked = df.assign(t=total).sort_values("t", ascending=False)
         rankings[name] = ranked["park_name"].tolist()
 
-    base = rankings["基準(40/30/15/15)"][:top_n]
+    base = rankings[BASE_NAME][:top_n]
     print("=" * 60)
     print(f"權重敏感度分析：各情境 Top-{top_n} 高風險園")
     print("=" * 60)
@@ -67,10 +69,10 @@ def main(top_n=5):
     print("\n" + "=" * 60)
     print("排名穩健性（Spearman 相關，vs 基準情境）")
     print("=" * 60)
-    base_full = pd.Series(range(len(rankings["基準(40/30/15/15)"])),
-                          index=rankings["基準(40/30/15/15)"])
+    base_full = pd.Series(range(len(rankings[BASE_NAME])),
+                          index=rankings[BASE_NAME])
     for name, order in rankings.items():
-        if name == "基準(40/30/15/15)":
+        if name == BASE_NAME:
             continue
         other = pd.Series(range(len(order)), index=order)
         rho = base_full.corr(other, method="spearman")

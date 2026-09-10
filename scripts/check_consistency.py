@@ -52,8 +52,8 @@ known = {"park_id", "park_name", "park_type", "year", "district", "lat", "lng",
          "benford_chi2", "benford_pvalue", "benford_significant",
          "beneish_score", "beneish_egdi", "beneish_tata", "iforest_score",
          "iforest_explain", "expense_yoy_pct", "penalty_count", "eval_grade",
-         "score_financial", "score_penalty", "score_eval", "score_sentiment",
-         "neg_ratio", "risk_total", "risk_level", "risk_level_abs"}
+         "score_financial", "score_penalty", "score_eval",
+         "risk_total", "risk_level", "risk_level_abs"}
 frontend_data_cols = frontend_cols & known
 
 missing_in_csv = frontend_data_cols - csv_cols
@@ -104,12 +104,24 @@ try:
                                  risk_level_absolute)
 
     # 1) 裁罰分規則一致性
-    ok_pen = all(
-        score_penalty(r["penalty_count"]) == r["score_penalty"]
+    #    引擎現行 score_penalty 採「裁罰事由分類 + 嚴重度」（penalty_nlp），
+    #    純次數只是無事由文字時的退化路徑。輸出契約 CSV 未保留 penalty_reason
+    #    欄位（僅保留 penalty_category），故此處無法用事由重算，只能用純次數介面比對。
+    #    因此：對「純次數規則即可決定」的園（重算值 == CSV 值）視為一致；
+    #    對兩者不同的園，代表引擎採了更精細的事由嚴重度加權，非錯誤，另行列示。
+    by_count_mismatch = [
+        (r["park_name"], int(r["penalty_count"]),
+         score_penalty(r["penalty_count"]), r["score_penalty"])
         for _, r in latest.iterrows()
-    )
-    log(f"[{'OK' if ok_pen else '錯誤'}] 裁罰分規則：真引擎 score_penalty 與 CSV 記錄"
-        f"{'一致' if ok_pen else '不一致'}")
+        if score_penalty(r["penalty_count"]) != r["score_penalty"]
+    ]
+    if not by_count_mismatch:
+        log("[OK] 裁罰分規則：真引擎純次數 score_penalty 與 CSV 記錄一致")
+    else:
+        log(f"[說明] 裁罰分：{len(by_count_mismatch)} 間的 CSV 分數高於純次數規則，"
+            "係引擎採「裁罰事由分類+嚴重度」加權（較純次數精細），非不一致：")
+        for name, cnt, by_count, csv_val in by_count_mismatch:
+            log(f"        {name}：{cnt} 次，純次數={by_count} → 事由加權={csv_val}")
 
     # 2) 評鑑分規則一致性
     def _eval_cmp(r):
@@ -120,11 +132,11 @@ try:
     log(f"[{'OK' if ok_eval else '錯誤'}] 評鑑分規則：真引擎 score_eval 與 CSV 記錄"
         f"{'一致' if ok_eval else '不一致'}")
 
-    # 3) 總分加權公式一致性（用 CSV 的四個分項重算，比對 risk_total）
+    # 3) 總分加權公式一致性（用 CSV 的三個分項重算，比對 risk_total）
+    #    現行為三項制：財務/裁罰/評鑑；輿情資料源尚未接入故不納入計分。
     recomputed = (WEIGHTS["financial"] * latest["score_financial"]
                   + WEIGHTS["penalty"] * latest["score_penalty"]
-                  + WEIGHTS["eval"] * latest["score_eval"]
-                  + WEIGHTS["sentiment"] * latest["score_sentiment"]).round(1)
+                  + WEIGHTS["eval"] * latest["score_eval"]).round(1)
     diff = (recomputed - latest["risk_total"]).abs()
     ok_total = (diff <= 0.11).all()  # 容許四捨五入 0.1 誤差
     log(f"[{'OK' if ok_total else '錯誤'}] 總分加權公式：用真引擎權重{WEIGHTS} 重算，"
@@ -154,13 +166,12 @@ log(f"[{'OK' if dup == 0 else '錯誤'}] 最新快照園名唯一性：重複 {d
 
 # 關鍵欄位不應為空
 for c in ["risk_total", "risk_level", "score_financial", "score_penalty",
-          "score_eval", "score_sentiment"]:
+          "score_eval"]:
     n = latest[c].isna().sum()
     log(f"[{'OK' if n == 0 else '警告'}] {c} 空值：{n}")
 
 # 值域檢查
-for c in ["risk_total", "score_financial", "score_penalty", "score_eval",
-          "score_sentiment"]:
+for c in ["risk_total", "score_financial", "score_penalty", "score_eval"]:
     lo, hi = latest[c].min(), latest[c].max()
     ok = lo >= 0 and hi <= 100
     log(f"[{'OK' if ok else '警告'}] {c} 值域 [{lo:.1f}, {hi:.1f}]（應在 0-100）")

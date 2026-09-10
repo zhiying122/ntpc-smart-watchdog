@@ -70,6 +70,8 @@ def score_financial(row):
         cross_bonus += 12
     if row.get("cross_rev_exp_divergence"):
         cross_bonus += 10
+    if row.get("cross_unit_expense_outlier"):
+        cross_bonus += 10  # 每生單位成本偏離同儕（成本面交叉勾稽）
 
     return round(min(base + cross_bonus, 100), 1)
 
@@ -127,6 +129,37 @@ def risk_level_percentile(series):
             return "中"
         return "低"
     return ranks.apply(level)
+
+
+def risk_level_by_group(df, score_col, group_col, min_group=7):
+    """
+    分組百分位相對分級（公平性版）：在每個「機構類型」內部各自做百分位分級，
+    避免把資料可得性/財務結構不同的異質機構放同一把尺比較。
+
+    學理：同儕比較 (peer benchmarking) 應在「可比同儕群體」內進行。公校與
+    非營利園的收入來源、可抽取的財務細緻度不同（非營利園無逐筆明細 → 無班佛
+    分項），屬不同同儕群體，分開排序才公平（PCAOB AS 2305 分析程序精神）。
+
+    min_group：某類型樣本數 < min_group 時，該類型改用「全體」百分位，
+    避免小樣本下百分位分級不穩定（例如某類型只有 3 間，前 15% 無意義）。
+    回傳與 df 對齊的等級 Series（高/中/低）。
+    """
+    import pandas as pd
+
+    if group_col not in df.columns:
+        return risk_level_percentile(df[score_col])
+
+    result = pd.Series(index=df.index, dtype="object")
+    for _gval, idx in df.groupby(group_col).groups.items():
+        sub = df.loc[idx, score_col]
+        if len(sub) >= min_group:
+            result.loc[idx] = risk_level_percentile(sub)
+        else:
+            # 小樣本：退回以全體分布計算的百分位，較穩健
+            all_rank = df[score_col].rank(pct=True)
+            result.loc[idx] = all_rank.loc[idx].apply(
+                lambda r: "高" if r >= 0.85 else ("中" if r >= 0.50 else "低"))
+    return result
 
 
 EXTERNAL = os.path.join(ROOT, "data", "external")
@@ -201,8 +234,13 @@ def build(df):
         + WEIGHTS["penalty"] * df["score_penalty"]
         + WEIGHTS["eval"] * df["score_eval"]
     ).round(1)
-    # 主用百分位相對分級（確保有高風險園、符合「稽查優先序」目的）
-    df["risk_level"] = risk_level_percentile(df["risk_total"])
+    # 主用百分位相對分級（確保有高風險園、符合「稽查優先序」目的）。
+    # 【公平性】分「機構類型」各自做百分位：公校與非營利園的財務結構、
+    # 可得資料層不同（非營利園無逐筆明細 → 無班佛分項，財務分會被系統性
+    # 低估），若混在同一把尺做百分位，非營利園會被不公平地壓在後段。
+    # 故改為同類型內部比較（peer benchmarking），與交叉指標 z 分數的分群一致。
+    # 每組樣本過少（<7）時退回全體百分位，避免小樣本分級不穩。
+    df["risk_level"] = risk_level_by_group(df, "risk_total", "park_type", min_group=7)
     # 同時保留絕對門檻分級供對照
     df["risk_level_abs"] = df["risk_total"].apply(risk_level_absolute)
 
@@ -224,7 +262,9 @@ def main():
             "iforest_score", "iforest_explain",
             "expense_yoy_pct", "income_yoy_pct",
             "enrollment", "income_per_child", "income_per_child_z",
-            "cross_unit_income_outlier", "rev_exp_growth_gap",
+            "expense_per_child", "expense_per_child_z",
+            "cross_unit_income_outlier", "cross_unit_expense_outlier",
+            "rev_exp_growth_gap",
             "cross_rev_exp_divergence", "cross_tuition_share_z",
             "penalty_count", "penalty_reason",
             "penalty_category", "eval_grade",
@@ -238,7 +278,11 @@ def main():
     # ---------- 給組員的「最新年度快照」：每園一列，供排名表與地圖直接用 ----------
     latest = (out.sort_values("year", ascending=False)
                  .drop_duplicates("park_name", keep="first")
-                 .sort_values("risk_total", ascending=False))
+                 .sort_values("risk_total", ascending=False)).copy()
+    # 分級改在「快照本身」重算：稽查看的是每園最新狀態，相對排名應以「每園一列」
+    # 的最新快照分布為基準（否則多年度重複列會扭曲百分位、使高風險占比偏離設計值）。
+    # 一樣分機構類型各自百分位，維持公平性。
+    latest["risk_level"] = risk_level_by_group(latest, "risk_total", "park_type", min_group=7)
     snap_path = os.path.join(PROC, "kindergartens_latest.csv")
     latest[cols].to_csv(snap_path, index=False, encoding="utf-8-sig")
     n_geo = latest["lat"].notna().sum() if "lat" in latest.columns else 0

@@ -311,13 +311,19 @@ def cross_metric_flags(df):
     """
     df = df.copy()
 
-    # --- 每生單位收入 ---
+    # --- 每生單位收入 / 每生單位成本（命題要求：財報 × 幼兒人數交叉分析）---
     if "enrollment" in df.columns:
         enr = pd.to_numeric(df["enrollment"], errors="coerce")
         inc = pd.to_numeric(df["income_actual"], errors="coerce")
+        exp = pd.to_numeric(df["expense_actual"], errors="coerce")
         df["income_per_child"] = (inc / enr).where(enr > 0)
+        # 每生單位成本 = 年度支出 / 核定招生人數。反映「養一個孩子的成本」，
+        # 是幼兒園財務效率與資源投放的核心指標。偏離同儕過高 → 成本結構待查
+        # （可能人事/採購浮編）；過低 → 恐排擠教保品質。缺人數者為 NaN（誠實不硬編）。
+        df["expense_per_child"] = (exp / enr).where(enr > 0)
     else:
         df["income_per_child"] = pd.NA
+        df["expense_per_child"] = pd.NA
 
     # --- 規則X1：單位幼兒收入 vs 同儕（同 park_type 分群，中位數 + 標準差）---
     df["income_per_child_z"] = pd.NA
@@ -334,6 +340,23 @@ def cross_metric_flags(df):
             df.loc[idx, "income_per_child_z"] = z.round(2)
             # 偏「高」端 1.5σ 以上：收到的錢相對每個孩子異常多，值得查金流結構
             df.loc[idx, "cross_unit_income_outlier"] = (z >= 1.5).fillna(False)
+
+    # --- 規則X3：每生單位成本 vs 同儕（成本面，與 X1 對稱）---
+    # 每生成本偏離同儕過大（雙尾 |z|>=1.5）即成本結構異常：偏高恐浮編，
+    # 偏低恐排擠品質。與收入面 X1 並列，構成「收入-成本」雙面交叉勾稽。
+    df["expense_per_child_z"] = pd.NA
+    df["cross_unit_expense_outlier"] = False
+    if "park_type" in df.columns:
+        for ptype, idx in df.groupby("park_type").groups.items():
+            grp = df.loc[idx]
+            s = pd.to_numeric(grp["expense_per_child"], errors="coerce").dropna()
+            if len(s) < 3:
+                continue
+            med = s.median()
+            std = s.std(ddof=0) or 1e-9
+            z = (pd.to_numeric(grp["expense_per_child"], errors="coerce") - med) / std
+            df.loc[idx, "expense_per_child_z"] = z.round(2)
+            df.loc[idx, "cross_unit_expense_outlier"] = (z.abs() >= 1.5).fillna(False)
 
     # --- 規則X2：收入-支出成長背離 ---
     # 收入大幅成長但支出沒跟上（或相反），是收支結構突變的訊號。

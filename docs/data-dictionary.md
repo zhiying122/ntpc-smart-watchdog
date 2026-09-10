@@ -62,7 +62,10 @@ radar_cols = ["score_financial", "score_penalty", "score_eval", "score_sentiment
 | `enrollment` | 核定招生數 | 全國教保資訊網，分班已合計 |
 | `income_per_child` | 每生單位收入 | 收入 ÷ 核定人數 |
 | `income_per_child_z` | 每生收入同儕 z 分數 | 同 park_type 分群 |
+| `expense_per_child` | 每生單位成本 | 支出 ÷ 核定人數 |
+| `expense_per_child_z` | 每生成本同儕 z 分數 | 同 park_type 分群 |
 | `cross_unit_income_outlier` | [F7] 單位收入偏離同儕 | z≥1.5 觸發 |
+| `cross_unit_expense_outlier` | [F9] 單位成本偏離同儕 | 雙尾 |z|≥1.5 觸發 |
 | `rev_exp_growth_gap` | 收入年增 − 支出年增(pp) | 交叉背離用 |
 | `cross_rev_exp_divergence` | [F8] 收入-支出成長背離 | |≥25pp| 觸發 |
 | `penalty_count` | 裁罰次數 | |
