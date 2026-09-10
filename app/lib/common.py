@@ -15,6 +15,11 @@ import time
 import pandas as pd
 import streamlit as st
 
+# RBAC：角色感知導覽（第一層授權）與身分驗證守衛（第二層授權）。
+# 這兩個模組為 app/lib 內的同儕模組；common 只在需要時使用其純函式與守衛。
+from lib import auth  # noqa: E402
+from lib import permissions  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # 專案路徑
 # ---------------------------------------------------------------------------
@@ -190,6 +195,27 @@ def fmt_pct(v, digits=1):
     if pd.isna(v):
         return "—"
     return f"{v:.{digits}f}%"
+
+
+def hex_rgba(hex_color, alpha=0.18):
+    """將 6 碼 hex 色碼（如 #B0453A）轉為 rgba() 字串，供 Plotly fillcolor 使用。
+
+    Plotly 的 fillcolor 不接受 8 碼 hex（#RRGGBBAA），需用 rgba() 表達透明度。
+    alpha 介於 0–1。非合法 6 碼 hex 時回傳原值（安全退化）。
+    """
+    s = str(hex_color).strip()
+    if s.startswith("#"):
+        s = s[1:]
+    if len(s) != 6:
+        return str(hex_color)
+    try:
+        r = int(s[0:2], 16)
+        g = int(s[2:4], 16)
+        b = int(s[4:6], 16)
+    except ValueError:
+        return str(hex_color)
+    a = max(0.0, min(float(alpha), 1.0))
+    return f"rgba({r},{g},{b},{a})"
 
 
 # ===========================================================================
@@ -495,10 +521,11 @@ def _current_page_key():
     因此以檔名關鍵字比對即可，跨平台（Windows 反斜線路徑亦適用）。
     """
     import inspect
+    nav_source = NAV_ALL if "NAV_ALL" in globals() else NAV
     try:
         for frame in inspect.stack():
             fn = os.path.basename(frame.filename)
-            for key, _disp, _ic, _page in NAV:
+            for key, _disp, _ic, _page in nav_source:
                 # 主頁：entry point 檔名為「主頁.py」
                 if key == "主頁":
                     if fn == "主頁.py":
@@ -513,11 +540,11 @@ def _current_page_key():
 
 def _sidebar(active_key):
     """
-    側欄 = 品牌區 + 導覽 + System Status footer。
-    導覽使用 Streamlit 原生 st.page_link()（單一導覽來源），
-    由 Streamlit 內建 router 處理頁面切換，路徑保證與 page registry 一致，
-    故不會出現 "Page not found"。視覺以 CSS（.sw-nav-native）貼齊原設計。
-    每個 icon 以獨立 class 呈現（純 CSS mask），不動元件內部結構。
+    側欄 = 品牌區 + 角色感知導覽 + 使用者/登出 + System Status footer。
+
+    RBAC 第一層授權（UI 導覽）：只顯示 permissions.get_role_navigation(current_role)
+    允許的頁面——不該看到的頁面在 UI 直接消失。未登入時側欄不顯示任何導覽。
+    導覽仍用 Streamlit 原生 st.page_link()（單一導覽來源），CSS class 不變。
     """
     # --- 1) 品牌區（HTML）---
     st.sidebar.markdown(
@@ -532,13 +559,34 @@ def _sidebar(active_key):
         unsafe_allow_html=True,
     )
 
-    # --- 2) 導覽（Streamlit 原生 page_link，單一來源）---
-    with st.sidebar.container():
-        for key, disp, ic, page in NAV:
-            # label 前置一個對應 icon 的字元標記，交由 CSS 依 key 疊上線性 SVG。
-            st.page_link(page, label=disp, icon=_NAV_EMOJI.get(key, "•"))
+    # --- 2) 角色感知導覽（第一層授權）---
+    # 未登入 → 不顯示任何導覽項目；已登入 → 只顯示該角色允許的頁面。
+    current_role = auth.get_current_role()
+    if current_role is not None:
+        allowed_keys = set(permissions.get_role_navigation(current_role))
+        with st.sidebar.container():
+            for key, disp, ic, page in NAV_ALL:
+                if key in allowed_keys:
+                    st.page_link(page, label=disp, icon=_NAV_EMOJI.get(key, "▪"))
 
-    # --- 3) System Status footer（HTML）---
+    # --- 3) 目前登入角色 + 登出（HTML + 按鈕）---
+    if current_role is not None:
+        user = auth.get_current_user() or {}
+        st.sidebar.markdown(
+            f"""
+            <div style='padding:10px 16px;border-top:1px solid rgba(255,255,255,.08);
+                 color:{SIDEBAR_INK};font-size:.82rem;'>
+              <span style='color:{SIDEBAR_INK_DIM};'>👤 目前角色</span><br>
+              <b style='color:#F1F4F7;'>{html.escape(user.get('label', ''))}</b>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.sidebar.button("登出", key="sidebar_logout", use_container_width=True):
+            auth.logout()
+            st.rerun()
+
+    # --- 4) System Status footer（HTML）---
     st.sidebar.markdown(
         f"""
         <div class='sw-side-foot'>
@@ -555,20 +603,50 @@ def _sidebar(active_key):
 # 導覽項目的 icon（用單色圓點 emoji 佔位，實際外觀由 CSS 控制；
 # st.page_link 的 icon 僅接受單一 emoji 或 Material 圖示，這裡用中性符號）。
 _NAV_EMOJI = {
+    "5_parent": "▪",
     "主頁": "▪", "1_case": "▪", "2_map": "▪", "3_ai": "▪", "4_sentiment": "▪",
+    "6_governance": "▪",
 }
+
+# 完整導覽清單（含 RBAC 新增的頁面）：在既有 NAV 之上補入案件調查（稽查員）、
+# 家長信任中心（家長）與資料治理權限矩陣（政府），供角色感知導覽依角色過濾。
+# 既有 NAV 不變（向後相容其他引用），角色過濾一律以 NAV_ALL 為來源。
+NAV_ALL = NAV + [
+    ("1_case",       "案件調查",         "case",      "pages/1_case.py"),
+    ("5_parent",     "家長信任中心",     "shield",    "pages/5_parent.py"),
+    ("6_governance", "資料治理權限矩陣", "shield",    "pages/6_governance.py"),
+]
+# NAV_ALL 可能因 1_case 已在 NAV（否）而重複；以 key 去重並保留首次出現順序。
+_seen_keys = set()
+_dedup = []
+for _item in NAV_ALL:
+    if _item[0] not in _seen_keys:
+        _seen_keys.add(_item[0])
+        _dedup.append(_item)
+NAV_ALL = _dedup
 
 
 def setup_page(page_title, header_title, subtitle=None, layout="wide",
-               module=None, crumb=None):
+               module=None, crumb=None, allowed_roles=None):
     """
     頁面初始化：set_page_config + 注入設計系統 + 品牌側欄 + Header/Breadcrumb。
     向後相容舊簽名（page_title/header_title/subtitle/layout）。
     module：麵包屑最後一節（預設用 header_title）。
+
+    RBAC（allowed_roles）：
+      - 若提供 allowed_roles（角色字串清單），先做頁面級守衛（第二層授權）：
+        未登入 → 顯示登入畫面並 st.stop()；已登入但角色不符 → 顯示「存取遭拒」
+        畫面並 st.stop()。
+      - 預設 None 時維持舊行為（向後相容，不破壞尚未加守衛的頁面）。
     """
     st.set_page_config(page_title=page_title, page_icon=None, layout=layout,
                        initial_sidebar_state="auto")
     st.markdown(_css(), unsafe_allow_html=True)
+
+    # RBAC 第二層授權：頁面級守衛（在渲染側欄與內容之前）。
+    if allowed_roles is not None:
+        auth.require_role(allowed_roles)
+
     _sidebar(_current_page_key())
 
     crumb_txt = crumb or "Fiscalint"

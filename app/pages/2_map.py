@@ -15,15 +15,18 @@ from streamlit_folium import st_folium
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib import common  # noqa: E402
 from lib import risk_map  # noqa: E402
+from lib import permissions  # noqa: E402
 
 common.setup_page(
     page_title="Fiscalint｜風險地圖",
     header_title="風險地圖",
     subtitle="機構風險的空間分布。底圖 OpenStreetMap（免費、免金鑰），依風險等級著色。",
     module="風險地圖",
+    allowed_roles=[permissions.ROLE_GOV],
 )
 
-df = common.require_data()
+# 資料授權層：政府為全欄位可見（含座標與風險分），仍走一致流程。
+df = permissions.authorize_dataframe(common.require_data(), permissions.ROLE_GOV)
 
 # ---------- 篩選 ----------
 col_a, col_b = st.columns([3, 1])

@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 from lib import common  # noqa: E402
 from lib import parent_portal as pp  # noqa: E402
+from lib import permissions  # noqa: E402
 from src.models import SourceRef  # noqa: E402
 
 common.setup_page(
@@ -35,9 +36,12 @@ common.setup_page(
     subtitle="教保機構公開資訊查詢。僅呈現可回溯官方公開資料之事實，不含任何風險評分。",
     module="家長信任中心",
     crumb="Parent Portal",
+    allowed_roles=[permissions.ROLE_PARENT],
 )
 
-df = common.require_data()
+# 資料授權層（關鍵）：家長取得的 df 在資料層即移除所有風險欄位，
+# 回傳的 df 根本不含 risk_total —— 並非前端把分數算出來再隱藏。
+df = permissions.authorize_dataframe(common.require_data(), permissions.ROLE_PARENT)
 
 # ---------- 選機構 ----------
 names = sorted(df["park_name"].dropna().unique().tolist())

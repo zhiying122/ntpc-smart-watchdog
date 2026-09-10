@@ -11,15 +11,23 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib import common  # noqa: E402
+from lib import auth  # noqa: E402
+from lib import permissions  # noqa: E402
+
+# RBAC：主頁屬政府（風險總覽）。未登入 → 顯示登入畫面；
+# 稽查員/家長直接開此頁網址 → require_role(["gov_user"]) 擋下（第二層授權）。
+auth.require_login()
 
 common.setup_page(
     page_title="Fiscalint｜風險總覽",
     header_title="風險總覽",
     subtitle="全體受監理機構的風險評估總覽，依總風險分排序協助稽查資源投放。",
     module="風險總覽",
+    allowed_roles=[permissions.ROLE_GOV],
 )
 
-df = common.require_data()
+# 資料授權層：政府為全欄位可見；仍走 authorize_dataframe 一致流程。
+df = permissions.authorize_dataframe(common.require_data(), permissions.ROLE_GOV)
 
 # ---------- 第一層：Risk Overview（企業級 KPI stat 帶）----------
 n_high = int((df["risk_level"] == "高").sum())

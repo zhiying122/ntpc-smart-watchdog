@@ -13,16 +13,21 @@ import sys
 import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from lib import auth  # noqa: E402
 from lib import common  # noqa: E402
+from lib import permissions  # noqa: E402
 
 common.setup_page(
     page_title="Fiscalint｜輿情分析",
     header_title="輿情分析",
     subtitle="網路評論情緒分析（離線示範，不計入風險分）。展示架構可規模化至全體機構的能力。",
     module="輿情分析",
+    allowed_roles=[permissions.ROLE_GOV, permissions.ROLE_INSPECTOR],
 )
 
-df = common.require_data()
+# 資料授權層：政府/稽查員皆為全欄位可見，仍走一致流程。
+df = permissions.authorize_dataframe(common.require_data(),
+                                     auth.get_current_role() or permissions.ROLE_GOV)
 
 # ---------- 內建小樣本評論（示範用，實際應由爬蟲取得）----------
 SAMPLE_COMMENTS = {
