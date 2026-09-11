@@ -1,9 +1,11 @@
 """
 可解釋風險評分模型（白盒子）
 ================================
-把鑑識會計指標 + 裁罰 + 評鑑 + 輿情，組成 0-100 的總風險分。
+把鑑識會計指標 + 裁罰 + 評鑑，組成 0-100 的總風險分。
 核心原則：可解釋。每個分項規則寫死在設定裡，能對評審講清楚
-「87 分 = 財務40 + 裁罰30 + 評鑑15 + 輿情15」怎麼來的。
+「51 分 = 財務18 + 裁罰27 + 評鑑6」怎麼來的。
+（現行三項制：財務 50% + 裁罰 34% + 評鑑 16%。輿情資料源尚未接入，
+故不納入計分，原 10% 依比例分配給其餘三項。）
 
 輸出：data/processed/kindergartens.csv （交給組員做儀表板的契約檔）
 """
@@ -12,6 +14,7 @@ import pandas as pd
 
 from src.forensic import analyze
 from src.models import RiskBreakdown
+from src.penalty_nlp import penalty_severity_score, classify_penalty_text
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROC = os.path.join(ROOT, "data", "processed")
@@ -64,12 +67,23 @@ def score_financial(row):
     return round(min(score, 100), 1)
 
 
-def score_penalty(penalty_count):
-    """裁罰分(0-100)：0次=0, 1次=50, 2次=80, 3次以上=100。"""
-    if pd.isna(penalty_count):
-        return 0
-    c = int(penalty_count)
-    return {0: 0, 1: 50, 2: 80}.get(c, 100)
+def score_penalty(row):
+    """
+    裁罰分(0-100)：改用「裁罰性質分類 + 嚴重度」，而非純次數。
+    看違規性質——2 次收費違規(90) 應遠重於 2 次行政缺失(45)。詳見 src/penalty_nlp.py。
+
+    向後相容：
+      - 傳入純量（int/float 或 NaN）→ 視為「只有次數、無事由文字」，以中性
+        嚴重度 50 為基底遞增（0 次=0、1 次=50、2 次=60…）。相容既有以
+        score_penalty(2) 純次數呼叫的程式與測試。
+      - 傳入 dict / pandas.Series（含 penalty_count、penalty_reason）→ 依事由
+        分類取主類別嚴重度為基底，再依次數遞增（收費 1 次=80、2 次=90…）。
+    """
+    if isinstance(row, (int, float)) or row is None or (
+            not hasattr(row, "get")):
+        # 純量介面：只有次數、無事由文字
+        return penalty_severity_score(row, "")
+    return penalty_severity_score(row.get("penalty_count"), row.get("penalty_reason"))
 
 
 def score_eval(grade):
@@ -316,8 +330,11 @@ def _merge_external(df):
     pen_path = os.path.join(EXTERNAL, "penalties.csv")
     if os.path.exists(pen_path):
         pen = pd.read_csv(pen_path).drop_duplicates("park_name", keep="first")
-        df = df.merge(pen[["park_name", "penalty_count", "eval_grade"]],
-                      on="park_name", how="left")
+        pen_cols = ["park_name", "penalty_count", "eval_grade"]
+        # 裁罰事由文字：供「事由分類 + 嚴重度」計分用（若來源含此欄）
+        if "penalty_reason" in pen.columns:
+            pen_cols.append("penalty_reason")
+        df = df.merge(pen[pen_cols], on="park_name", how="left")
     # 座標
     geo_path = os.path.join(ROOT, "data", "processed", "geocoded.csv")
     if os.path.exists(geo_path):
@@ -345,12 +362,20 @@ def build(df):
     # 誠實預設：非營利園無裁罰資料 → 0 次；評鑑無資料 → 空字串（介面顯示 —）。
     df["penalty_count"] = df["penalty_count"].fillna(0).astype(int)
     df["eval_grade"] = df["eval_grade"].fillna("")
+    # 裁罰事由文字（供分類/嚴重度）；非營利園或無裁罰者為空字串
+    if "penalty_reason" not in df.columns:
+        df["penalty_reason"] = ""
+    df["penalty_reason"] = df["penalty_reason"].fillna("")
+    # 裁罰主類別（收費/人力/安全/教保/行政），供前端與派工重點使用
+    df["penalty_category"] = df.apply(
+        lambda r: classify_penalty_text(r.get("penalty_reason"))["primary"] or "", axis=1)
     # 班佛樣本數：非營利園無逐筆明細 → 0（介面 int 顯示用）
     if "benford_sample_n" in df.columns:
         df["benford_sample_n"] = df["benford_sample_n"].fillna(0).astype(int)
 
     df["score_financial"] = df.apply(score_financial, axis=1)
-    df["score_penalty"] = df["penalty_count"].apply(score_penalty)
+    # 裁罰分改用整列（事由分類 + 嚴重度）；無事由者自動退回中性次數規則
+    df["score_penalty"] = df.apply(score_penalty, axis=1)
     df["score_eval"] = df["eval_grade"].apply(score_eval)
 
     df["risk_total"] = (
@@ -381,7 +406,8 @@ def main():
             "benford_chi2", "benford_pvalue", "benford_significant",
             "beneish_score", "beneish_egdi", "beneish_tata",
             "iforest_score", "iforest_explain",
-            "expense_yoy_pct", "penalty_count", "eval_grade",
+            "expense_yoy_pct",
+            "penalty_count", "penalty_reason", "penalty_category", "eval_grade",
             "score_financial", "score_penalty", "score_eval",
             "risk_total", "risk_level", "risk_level_abs"]
     cols = [c for c in cols if c in out.columns]
