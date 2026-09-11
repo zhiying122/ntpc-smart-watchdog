@@ -166,6 +166,29 @@ if not pd.isna(row.get("eval_grade")) and str(row.get("eval_grade")).strip():
     )
 
 # ---------------------------------------------------------------------------
+# 收費資訊（方案 A）：以決算實收學費總額呈現，並標清楚語意避免家長誤解。
+# 說明：tuition_actual 為「該園該決算年度全園實收學費總額」，非「每名幼兒收費」。
+# 直接顯示金額會被誤讀為個人繳費，故明確標註為全園決算總額，並附年度。
+# 資料來源：地方教育發展基金決算書（公開）。
+# ---------------------------------------------------------------------------
+_tuition = row.get("tuition_actual")
+if _tuition is not None and not pd.isna(_tuition):
+    try:
+        _tuition_wan = float(_tuition) / 10000.0
+        _year = row.get("year")
+        _year_txt = f"{int(_year)} 年度" if _year is not None and not pd.isna(_year) else "最新決算年度"
+        row["tuition_info"] = (
+            f"{_year_txt}全園實收學費總額約 {_tuition_wan:,.0f} 萬元"
+            f"（決算數；非每名幼兒收費，實際各項收退費依主管機關公告與契約為準）"
+        )
+        field_sources["tuition_info"] = SourceRef(
+            dataset="地方教育發展基金決算書（公開）", authority=_authority,
+            url=_url, last_updated=_updated,
+        )
+    except (TypeError, ValueError):
+        pass
+
+# ---------------------------------------------------------------------------
 # 委由呈現無關模組計算公開檢視與揭露欄位（與公務後台共用同一份純邏輯）
 # ---------------------------------------------------------------------------
 view = pp.build_public_view(row, field_sources, reference=_updated)
