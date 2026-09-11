@@ -283,7 +283,11 @@ def isolation_forest_scores(df, feature_cols):
     """
     from sklearn.ensemble import IsolationForest
 
-    X = df[feature_cols].fillna(df[feature_cols].median(numeric_only=True)).fillna(0)
+    # 先將特徵欄位一律強制轉為數值（非數值→NaN），再以中位數補值、最後補 0。
+    # 先轉數值可根除 object dtype 在 .fillna 時的隱式降型 FutureWarning，
+    # 且確保 IsolationForest 收到純數值矩陣（行為不變、更穩健）。
+    feats = df[feature_cols].apply(pd.to_numeric, errors="coerce")
+    X = feats.fillna(feats.median(numeric_only=True)).fillna(0)
     if len(X) < 4:
         return [None] * len(df), [{}] * len(df)
 

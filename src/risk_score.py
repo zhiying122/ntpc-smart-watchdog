@@ -433,8 +433,12 @@ def attach_whitebox_columns(df):
     return df
 
 
-def main():
-    src = os.path.join(PROC, "financials.csv")
+def main(src=None):
+    # 輸入檔：預設 financials.csv；可經參數或環境變數 FISCALINT_FINANCIALS
+    # 指向合併檔（含非營利園），以在不改動既有流程下擴充資料涵蓋。
+    if src is None:
+        src = os.environ.get(
+            "FISCALINT_FINANCIALS", os.path.join(PROC, "financials.csv"))
     df = pd.read_csv(src)
     out = build(df)
     out = attach_whitebox_columns(out)

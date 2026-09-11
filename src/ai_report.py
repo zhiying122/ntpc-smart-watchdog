@@ -142,7 +142,7 @@ def build_prompt(row):
 所在行政區：{g('district')}
 機構類型：{g('park_type')}
 總風險分：{g('risk_total')}／100（風險等級：{g('risk_level')}）
-分項分數：財務異常 {g('score_financial')}、裁罰 {g('score_penalty')}、評鑑 {g('score_eval')}、輿情 {g('score_sentiment')}
+分項分數：財務異常 {g('score_financial')}、裁罰 {g('score_penalty')}、評鑑 {g('score_eval')}（輿情資料源尚未接入，本版本不納入計分）
 收支比：{ratio} {ratio_note}
 班佛偏離度(MAD)：{g('benford_mad')}
 Beneish 操縱分：{g('beneish_score')}
@@ -341,7 +341,8 @@ _ANSWERABLE_FIELDS = {
     "score_financial": ("財務異常分項", "鑑識會計財務指標"),
     "score_penalty": ("裁罰分項", "全國教保資訊網裁罰紀錄"),
     "score_eval": ("評鑑分項", "教保機構評鑑結果"),
-    "score_sentiment": ("輿情分項", "網路輿情 NLP 分析"),
+    # 註：輿情分項（score_sentiment）之資料源尚未接入，本版本不納入計分，
+    # 故不列於可回答欄位，避免暗示系統擁有輿情分數。接入後再加回。
     "expense_income_ratio": ("收支比", "公校決算書／機構財報"),
     "benford_mad": ("班佛偏離度(MAD)", "班佛定律檢定（首位數分布）"),
     "beneish_score": ("Beneish 操縱分", "Beneish M-Score 模型"),
