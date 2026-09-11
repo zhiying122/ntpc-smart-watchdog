@@ -57,14 +57,31 @@ def test_gov_backend_shows_login_when_unauthenticated():
     assert "公務帳號登入" in texts or "公務入口" in texts
 
 
-#: AppTest 的 bare 模式不提供多頁 URL 上下文，st.page_link 會丟 KeyError:
-#: 'url_pathname'。這是測試框架限制（真實 Streamlit server 正常，已以 HTTP 200
-#: 與乾淨 log 驗證），非應用程式邏輯錯誤。以下工具判定例外是否僅為此已知限制。
+#: AppTest 的 bare 模式不提供多頁 URL 上下文，st.page_link 會失敗。這是測試框架
+#: 限制（真實 Streamlit server 正常，已以 HTTP 200 與乾淨 log 驗證），非應用程式
+#: 邏輯錯誤。不同 Streamlit 版本此限制的訊息不同：
+#:   - 舊版：KeyError: 'url_pathname'
+#:   - 新版：StreamlitPageNotFoundError: Could not find page: `主頁.py`
+#: 以下工具判定例外是否「僅為此已知 page_link harness 限制」，涵蓋上述兩種訊息。
 def _is_only_pagelink_harness_limitation(exc) -> bool:
     if exc is None:
         return True
-    msg = str(getattr(exc, "value", exc))
-    return "url_pathname" in msg
+    # exc 可能是單一例外或 ElementList（多個例外）；逐一檢查，全部都必須是
+    # page_link 限制才算通過（任一為其他真實錯誤即不通過）。
+    items = list(exc) if hasattr(exc, "__iter__") and not isinstance(exc, str) else [exc]
+    if not items:
+        return True
+    for e in items:
+        msg = str(getattr(e, "value", e))
+        is_pagelink = (
+            "url_pathname" in msg               # 舊版 Streamlit
+            or "find page" in msg               # 新版：Could not find page
+            or "StreamlitPageNotFoundError" in msg
+            or "st.navigation" in msg           # 新版錯誤訊息尾段提示
+        )
+        if not is_pagelink:
+            return False
+    return True
 
 
 def test_gov_backend_renders_after_gov_login():
