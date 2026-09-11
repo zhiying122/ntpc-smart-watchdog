@@ -603,7 +603,7 @@ def _sidebar(active_key):
 # st.page_link 的 icon 僅接受單一 emoji 或 Material 圖示，這裡用中性符號）。
 _NAV_EMOJI = {
     "主頁": "▪", "1_case": "▪", "2_map": "▪", "5_dispatch": "▪",
-    "3_ai": "▪", "4_sentiment": "▪", "6_governance": "▪",
+    "7_integration": "▪", "3_ai": "▪", "4_sentiment": "▪", "6_governance": "▪",
 }
 
 # 完整導覽清單（公務後台）：在既有 NAV 之上補入案件調查（稽查員）與資料治理
@@ -611,9 +611,10 @@ _NAV_EMOJI = {
 # 家長信任中心已切分為獨立公眾查詢網（public/公開查詢.py），不再是公務後台頁面。
 # 既有 NAV 不變（向後相容其他引用），角色過濾一律以 NAV_ALL 為來源。
 NAV_ALL = NAV + [
-    ("1_case",       "案件調查",         "case",      "pages/1_case.py"),
-    ("5_dispatch",   "派工決策台",       "case",      "pages/5_dispatch.py"),
-    ("6_governance", "資料治理權限矩陣", "shield",    "pages/6_governance.py"),
+    ("1_case",        "案件調查",         "case",      "pages/1_case.py"),
+    ("5_dispatch",    "派工決策台",       "case",      "pages/5_dispatch.py"),
+    ("7_integration", "資料整合中心",     "dashboard", "pages/7_integration.py"),
+    ("6_governance",  "資料治理權限矩陣", "shield",    "pages/6_governance.py"),
 ]
 # NAV_ALL 可能因 1_case 已在 NAV（否）而重複；以 key 去重並保留首次出現順序。
 _seen_keys = set()

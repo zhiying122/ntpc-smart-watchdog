@@ -98,6 +98,18 @@ def test_dispatch_page_renders_for_gov():
         f"派工決策台真實執行期例外：{at.exception}")
 
 
+def test_integration_page_renders_for_gov():
+    # 資料整合中心（政府頁）應能以政府身分渲染，不丟真實例外。
+    # 注意：首次載入不會自動觸網（同步為按鈕觸發），故此測試不依賴網路。
+    at = AppTest.from_file(os.path.join(ROOT, "app", "pages", "7_integration.py"),
+                           default_timeout=60)
+    at.session_state["auth_role"] = "gov_user"
+    at.session_state["auth_username"] = "government_demo"
+    at.run()
+    assert _is_only_pagelink_harness_limitation(at.exception), (
+        f"資料整合中心真實執行期例外：{at.exception}")
+
+
 def test_gov_backend_parent_role_denied_no_exception():
     # 家長角色即使被塞進 session，主頁 require_role 也應擋下且不丟例外。
     at = AppTest.from_file(GOV_APP, default_timeout=60)
