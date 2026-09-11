@@ -393,10 +393,30 @@ def build(df):
     return df.sort_values("risk_total", ascending=False)
 
 
+def attach_whitebox_columns(df):
+    """對每列套用白盒 score()，附加四級絕對等級與責任 AI 聲明欄位（不改既有欄位）。
+
+    產出三個附加欄位（附加於既有欄位之後，不破壞載入契約與三級 risk_level）：
+      eng_risk_total     : 白盒總分（與既有 risk_total 一致，可對照）。
+      eng_risk_level     : 四級絕對等級（低/中/高/極高，R10.2），供單機構絕對等級標示；
+                           既有 risk_level（三級）續作稽查優先序排序用（R10.6），兩者並存。
+      eng_not_illegality : 「風險不等於違法」責任 AI 聲明（R10.4/R19.4），非空。
+
+    設計依據：src/risk_score.score() 與 docs specs R10.2/R10.4——三級與四級並存、各司其職。
+    """
+    df = df.copy()
+    breakdowns = df.apply(lambda r: score(r), axis=1)
+    df["eng_risk_total"] = [b.total for b in breakdowns]
+    df["eng_risk_level"] = [b.level for b in breakdowns]
+    df["eng_not_illegality"] = [b.not_illegality_notice for b in breakdowns]
+    return df
+
+
 def main():
     src = os.path.join(PROC, "financials.csv")
     df = pd.read_csv(src)
     out = build(df)
+    out = attach_whitebox_columns(out)
 
     # 輸出契約檔（給組員）
     cols = ["park_id", "park_name", "park_type", "year",
@@ -409,7 +429,10 @@ def main():
             "expense_yoy_pct",
             "penalty_count", "penalty_reason", "penalty_category", "eval_grade",
             "score_financial", "score_penalty", "score_eval",
-            "risk_total", "risk_level", "risk_level_abs"]
+            "risk_total", "risk_level", "risk_level_abs",
+            # 白盒 score() 附加欄位：四級絕對等級 + 責任 AI 聲明（附加於後，
+            # 不破壞既有三級 risk_level 與載入契約）。
+            "eng_risk_total", "eng_risk_level", "eng_not_illegality"]
     cols = [c for c in cols if c in out.columns]
     out_path = os.path.join(PROC, "kindergartens.csv")
     out[cols].to_csv(out_path, index=False, encoding="utf-8-sig")
