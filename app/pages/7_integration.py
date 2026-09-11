@@ -26,6 +26,7 @@ from lib import common  # noqa: E402
 from lib import permissions  # noqa: E402
 from src import kpi as kpi_mod  # noqa: E402
 from src import live_source as ls  # noqa: E402
+from src import penalty_match as pm  # noqa: E402
 
 common.setup_page(
     page_title="Fiscalint｜資料整合中心",
@@ -69,6 +70,15 @@ if do_sync:
             st.error(f"資料同步發生非預期錯誤：{exc}")
 
     if ds is not None and (ds.institutions or ds.penalties):
+        # 裁罰-機構實體比對（信心分級；僅 HIGH 建議計入，責任 AI）。
+        matches = pm.match_penalties(ds.penalties, ds.institutions)
+        match_summaries = pm.summarize_by_institution(matches)
+        n_high = sum(1 for m in matches if m.confidence == pm.HIGH)
+        n_pending = len(matches) - n_high
+        top_confirmed = sorted(
+            match_summaries.values(),
+            key=lambda s: s.confirmed_count, reverse=True)[:8]
+
         st.session_state["live_ds_summary"] = {
             "inst": len(ds.institutions),
             "pen": len(ds.penalties),
@@ -88,6 +98,15 @@ if do_sync:
                 {"受處分對象別": p.subject_type, "對象": p.subject,
                  "日期": p.date, "處分": p.punishment}
                 for p in ds.penalties[:8]
+            ],
+            "match_total": len(matches),
+            "match_high": n_high,
+            "match_pending": n_pending,
+            "match_institutions": len(match_summaries),
+            "match_top": [
+                {"機構名稱": s.park_name, "確認裁罰數（高信心）": s.confirmed_count,
+                 "待人工確認": s.pending_count}
+                for s in top_confirmed if s.confirmed_count > 0
             ],
         }
     elif ds is not None:
@@ -117,6 +136,38 @@ if summary:
         common.section("裁罰紀錄（樣本）", "alert")
         st.dataframe(pd.DataFrame(summary["sample_pen"]),
                      use_container_width=True, hide_index=True)
+
+    # ---- 裁罰-機構實體比對（信心分級，責任 AI）----
+    if "match_total" in summary:
+        common.section("裁罰-機構實體比對（信心分級）", "shield")
+        st.markdown(
+            f"<div style='color:{common.INK_2};font-size:.86rem;margin:2px 0 10px;'>"
+            "裁罰紀錄多以個人（行為人／負責人）為對象，需比對到具體機構。此比對"
+            "本質不確定，故採<b>信心分級</b>：僅「高信心」（機構名相符，或負責人"
+            "唯一對應）建議計入風險；負責人對應多間機構者標為「待人工確認」，"
+            "不直接計分，避免冤枉機構。每筆比對均可追溯來源裁罰 id。</div>",
+            unsafe_allow_html=True,
+        )
+        common.kpi_band([
+            ("比對到機構的裁罰", f"{summary['match_total']:,}", False, "總比對筆數"),
+            ("高信心（建議計入）", f"{summary['match_high']:,}", True,
+             "機構名相符或負責人唯一"),
+            ("待人工確認", f"{summary['match_pending']:,}", False,
+             "負責人對應多間，不直接計分"),
+            ("涉及機構數", f"{summary['match_institutions']:,}", False, "去重後"),
+        ])
+        if summary["match_top"]:
+            st.markdown(
+                f"<div style='color:{common.INK_2};font-size:.84rem;margin:8px 0 4px;'>"
+                "高信心確認裁罰數最高的機構：</div>", unsafe_allow_html=True)
+            st.dataframe(pd.DataFrame(summary["match_top"]),
+                         use_container_width=True, hide_index=True)
+        st.markdown(
+            f"<div style='margin-top:6px;color:{common.FAINT};font-size:.78rem;'>"
+            "僅高信心比對建議作為風險引擎的裁罰標籤來源；待人工確認項須經稽查"
+            "人員核對後方可採用（責任 AI：不確定比對不得推高機構風險）。</div>",
+            unsafe_allow_html=True,
+        )
 else:
     common.empty_state(
         "尚未同步動態資料",

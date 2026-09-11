@@ -171,7 +171,7 @@ def test_get_allowed_fields_parent_subset_of_full():
 def test_get_role_navigation_gov():
     nav = set(perm.get_role_navigation(GOV))
     assert nav == {"主頁", "2_map", "5_dispatch", "7_integration",
-                   "3_ai", "4_sentiment", "6_governance"}
+                   "3_ai", "4_sentiment", "6_governance", "8_health"}
 
 
 def test_get_role_navigation_inspector():

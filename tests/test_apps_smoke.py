@@ -110,6 +110,16 @@ def test_integration_page_renders_for_gov():
         f"資料整合中心真實執行期例外：{at.exception}")
 
 
+def test_health_page_renders_for_gov():
+    at = AppTest.from_file(os.path.join(ROOT, "app", "pages", "8_health.py"),
+                           default_timeout=60)
+    at.session_state["auth_role"] = "gov_user"
+    at.session_state["auth_username"] = "government_demo"
+    at.run()
+    assert _is_only_pagelink_harness_limitation(at.exception), (
+        f"系統健康檢查頁真實執行期例外：{at.exception}")
+
+
 def test_gov_backend_parent_role_denied_no_exception():
     # 家長角色即使被塞進 session，主頁 require_role 也應擋下且不丟例外。
     at = AppTest.from_file(GOV_APP, default_timeout=60)

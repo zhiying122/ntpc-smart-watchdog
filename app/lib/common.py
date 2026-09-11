@@ -604,6 +604,7 @@ def _sidebar(active_key):
 _NAV_EMOJI = {
     "主頁": "▪", "1_case": "▪", "2_map": "▪", "5_dispatch": "▪",
     "7_integration": "▪", "3_ai": "▪", "4_sentiment": "▪", "6_governance": "▪",
+    "8_health": "▪",
 }
 
 # 完整導覽清單（公務後台）：在既有 NAV 之上補入案件調查（稽查員）與資料治理
@@ -615,6 +616,7 @@ NAV_ALL = NAV + [
     ("5_dispatch",    "派工決策台",       "case",      "pages/5_dispatch.py"),
     ("7_integration", "資料整合中心",     "dashboard", "pages/7_integration.py"),
     ("6_governance",  "資料治理權限矩陣", "shield",    "pages/6_governance.py"),
+    ("8_health",      "系統健康檢查",     "shield",    "pages/8_health.py"),
 ]
 # NAV_ALL 可能因 1_case 已在 NAV（否）而重複；以 key 去重並保留首次出現順序。
 _seen_keys = set()
