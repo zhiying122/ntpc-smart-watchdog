@@ -23,7 +23,8 @@ FIN = PROC / "financials.csv"
 FIELDS = ["park_id", "park_name", "park_type", "year",
           "income_actual", "income_last_year",
           "expense_actual", "expense_last_year",
-          "tuition_actual", "surplus", "fund_balance_end",
+          "tuition_actual", "surplus",
+          "fund_balance_begin", "fund_balance_end",
           "detail_amounts"]
 
 
@@ -78,6 +79,8 @@ def build_nonprofit_rows():
                 "expense_last_year": prev_expense,
                 "tuition_actual": None,   # 非營利收支表未單列學雜費，誠實留空
                 "surplus": surplus,
+                # 基金餘額：非營利園 OCR 彙總未抽期初/期末基金餘額，誠實留空
+                "fund_balance_begin": None,
                 "fund_balance_end": None,
                 # 非營利園無逐筆明細（OCR 只取彙總），班佛改用群體檢定，個別留空
                 "detail_amounts": "",

@@ -16,8 +16,11 @@
 - **缺資料處理**（R2.10）：標記缺風險分數或主要風險訊號時，顯示機構名稱並
   以「資料尚未提供」標示，而非空白或錯誤。
 
-分級門檻與等級標籤沿用 app/lib/gov_console.py（單一分級來源），確保地圖著色
-與 KPI/排名分級一致。
+等級來源（重要）：地圖著色**優先採用契約檔既有的 `risk_level` 欄位**
+（由 src/risk_score.py 的分機構類型百分位分級產生，高/中/低），確保與主頁、
+排名、KPI 完全一致。僅當某列 `risk_level` 缺失時，才退回以 gov_console.grade()
+的絕對門檻即時分級（fallback）。實務上契約檔每列皆有 `risk_level`，故此
+fallback 幾乎不會觸發——地圖等級與全站一致，不會出現同園跨頁等級不同。
 
 責任 AI（Responsible AI）：風險（risk）不等於違法（illegality）。本模組僅
 呈現分數、等級與風險訊號，不作任何違法/舞弊認定。
@@ -260,7 +263,8 @@ def build_marker(row: dict,
         except (TypeError, ValueError):
             score = None
 
-    # 等級：優先取既有欄位；缺時以分數即時分級；仍無則空字串（→ 灰色）。
+    # 等級：優先取既有欄位 risk_level（百分位三級，與主頁/排名同源，確保跨頁一致）；
+    # 僅在該欄位缺失時才以 grade() 絕對門檻即時分級（fallback）；仍無則空字串（→ 灰色）。
     level = _clean_str(row.get(level_col))
     if not level and score is not None:
         level = grade(score)

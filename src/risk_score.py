@@ -33,10 +33,22 @@ WEIGHTS = {
 def score_financial(row):
     """
     財務異常分(0-100)：四層鑑識會計方法疊合，全部可解釋。
-    可解釋組成：
+    可解釋組成（基礎六層）：
       班佛定律 25% + Beneish改良版 20% + Isolation Forest 25%
       + 收支比離群 10% + 跨年度突變 10% + 賸餘短絀率 10%
     多層方法互相佐證：多個方法同時指向的園，風險最高。
+
+    【指標獨立性】各層捕捉「不同面向」的訊號，權重即該面向的重要性、不重複計分。
+    Isolation Forest（見 forensic.analyze 的 iso_features）刻意只吃其他層未單獨
+    計分的維度（學雜費占收入比、收入年增率），避免收支比/支出年增率/班佛/Beneish
+    被再算一次而隱性加權，確保白盒子權重名副其實。
+
+    【基金餘額勾稽加成（不對稱）】在基礎六層之上，若基金餘額勾稽「不一致」
+    （同期：期末≠期初+本期賸餘；或跨年度：本年期初≠上年期末），代表決算數字
+    內部矛盾，是強鑑識訊號 → 對財務分做「向上加成」（最多 +15 分，封頂 100）。
+    設計為「不對稱」：勾稽一致時加成為 0、完全不動基礎分（不因帳務健全而扣分或
+    稀釋其他分項）；唯有勾稽不一致才推高風險。故公校（勾稽全一致）分數不受影響，
+    此加成專門讓「帳對不起來」的機構（如部分 OCR 抽取的非營利園）被正確突顯。
     """
     # NaN 安全轉 0：非營利園無逐筆明細 → benford_score 為 NaN，該層視為中性(0)，
     # 不可用「NaN or 0」（NaN 為 truthy 會保留 NaN 並汙染總分）。
@@ -64,6 +76,15 @@ def score_financial(row):
 
     score = (0.25 * benford + 0.20 * beneish + 0.25 * iforest
              + 0.10 * ratio_pts + 0.10 * yoy_pts + 0.10 * deficit_pts)
+
+    # 基金餘額勾稽加成（不對稱，只在不一致時向上加成，最多 +15 分）。
+    # 取同期勾稽分與跨年度連續性勾稽分的較大者當不一致嚴重度（0–100），
+    # 乘 0.15 得加成分。一致時兩者皆 0 → 加成 0，基礎分不變。
+    recon = _z(row.get("fund_recon_score"))
+    continuity = _z(row.get("fund_continuity_score"))
+    recon_bonus = max(recon, continuity) * 0.15  # 0–15
+    score = score + recon_bonus
+
     return round(min(score, 100), 1)
 
 
@@ -427,6 +448,9 @@ def main():
             "beneish_score", "beneish_egdi", "beneish_tata",
             "iforest_score", "iforest_explain",
             "expense_yoy_pct",
+            # 基金餘額勾稽（鑑識旗標）：期末餘額、勾稽一致性與可疑分
+            "fund_balance_begin", "fund_balance_end",
+            "fund_recon_score", "fund_recon_consistent", "fund_continuity_score",
             "penalty_count", "penalty_reason", "penalty_category", "eval_grade",
             "score_financial", "score_penalty", "score_eval",
             "risk_total", "risk_level", "risk_level_abs",

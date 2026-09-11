@@ -194,14 +194,20 @@ with tab_peer:
         val = f"{p.value:.1f}" if p.value is not None else "—"
         med = f"{p.peer_median:.1f}" if p.peer_median is not None else "—"
         pct = f"{p.percentile:.0f}%" if p.percentile is not None else "—"
+        z = f"{p.z_score:+.2f}" if p.z_score is not None else "—"
+        rob = f"{p.robust_deviation:+.2f}" if p.robust_deviation is not None else "—"
         body += (f"<tr><td class='l'>{p.label}</td><td>{val}</td><td>{med}</td>"
-                 f"<td>{pct}</td><td class='l'>{p.position}</td></tr>")
+                 f"<td>{pct}</td><td>{z}</td><td>{rob}</td>"
+                 f"<td class='l'>{p.position}</td></tr>")
     st.markdown(
         "<table class='sw-table'><thead><tr><th class='l'>分項</th><th>本機構</th>"
-        "<th>同儕中位數</th><th>百分位</th><th class='l'>相對位置</th></tr></thead>"
+        "<th>同儕中位數</th><th>百分位</th><th>z 分數</th><th>穩健偏差</th>"
+        "<th class='l'>相對位置</th></tr></thead>"
         f"<tbody>{body}</tbody></table>",
         unsafe_allow_html=True,
     )
+    st.caption("z 分數 =（本機構 − 同儕平均）/ 標準差；穩健偏差以中位數與 MAD 為基礎、"
+               "抗離群。兩者皆為可解釋的同儕相對位置統計量（±1 以上代表明顯偏離同儕）。")
 
 # ---- 異常偵測（R5.6）----
 with tab_anom:
@@ -222,6 +228,35 @@ with tab_anom:
         f"<tbody>{body}</tbody></table>",
         unsafe_allow_html=True,
     )
+
+    # ---- 七方法明細（護城河可視化：每種方法各自怎麼判、適用什麼、有何限制）----
+    if anom.methods:
+        common.section("偵測方法明細（七法交叉驗證）", "alert")
+        mbody = ""
+        for m in anom.methods:
+            if m.applicable:
+                hit = "命中" if m.flag else "未命中"
+                hit_color = common.RISK_BAR["high"] if m.flag else common.INK_MUTED
+                score_txt = f"{m.score:.1f}"
+            else:
+                hit = "樣本不足"
+                hit_color = common.INK_MUTED
+                score_txt = "—"
+            mbody += (
+                f"<tr><td class='l'>{m.label}</td><td class='l'>{m.anomaly_type}</td>"
+                f"<td>{score_txt}</td><td>{m.threshold:.0f}</td>"
+                f"<td class='l' style='color:{hit_color};'>{hit}</td>"
+                f"<td class='l' style='font-size:.78rem;color:{common.INK_MUTED};'>"
+                f"假設：{m.assumption}<br>限制：{m.limitation}</td></tr>")
+        st.markdown(
+            "<table class='sw-table'><thead><tr><th class='l'>偵測方法</th>"
+            "<th class='l'>異常類型</th><th>異常分</th><th>門檻</th>"
+            "<th class='l'>判定</th><th class='l'>適用性（假設／限制）</th></tr></thead>"
+            f"<tbody>{mbody}</tbody></table>",
+            unsafe_allow_html=True,
+        )
+        st.caption("七種方法各自獨立偵測、交叉驗證：≥2 種方法命中才研判為高可信度異常，"
+                   "降低單一方法誤判。樣本不足的方法會誠實標示並跳過，不影響其餘方法。")
 
 # ---- 證據鏈（R5.7）----
 with tab_ev:

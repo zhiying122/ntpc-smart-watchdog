@@ -86,6 +86,12 @@ def _subject(joined):
         return "expense"
     if joined.startswith("4S1學雜費收入") or joined.startswith("4S1"):
         return "tuition"
+    # 期初/期末基金餘額：供基金餘額勾稽（期末 = 期初 + 本期賸餘）。
+    # 需在「本期賸餘」判斷之前，避免「期初基金餘額」被別的規則吃掉。
+    if joined.startswith("期初基金餘額"):
+        return "fund_begin"
+    if joined.startswith("期末基金餘額"):
+        return "fund_end"
     if joined.startswith("本期賸餘"):
         return "surplus"
     return None
@@ -186,7 +192,9 @@ def extract_pdf(pdf_path, year):
             "expense_last_year": d.get("expense_prev"),
             "tuition_actual": d.get("tuition_cur"),
             "surplus": d.get("surplus_cur"),
-            "fund_balance_end": None,
+            # 基金餘額勾稽用（本年度決算數欄）：期末 = 期初 + 本期賸餘（− 解繳公庫等調整）。
+            "fund_balance_begin": d.get("fund_begin_cur"),
+            "fund_balance_end": d.get("fund_end_cur"),
             "detail_amounts": ";".join(str(x) for x in details),
         })
     doc.close()
@@ -196,7 +204,8 @@ def extract_pdf(pdf_path, year):
 FIELDS = ["park_id", "park_name", "park_type", "year",
           "income_actual", "income_last_year",
           "expense_actual", "expense_last_year",
-          "tuition_actual", "surplus", "fund_balance_end",
+          "tuition_actual", "surplus",
+          "fund_balance_begin", "fund_balance_end",
           "detail_amounts"]
 
 

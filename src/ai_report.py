@@ -80,6 +80,50 @@ _SANITIZE_REPLACEMENT = "需進一步查核之疑慮"
 _NOT_ILLEGALITY_NOTICE = "風險不等於違法"
 
 
+def _num(row, key):
+    """從 row 取數值；缺值/NaN/非數值回傳 None。"""
+    v = row.get(key)
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if f != f else f  # NaN → None
+
+
+def _fund_recon_fact(row):
+    """產生「基金餘額勾稽」的誠實敘述（供 prompt facts）。
+
+    - 有不一致（同期或跨年度分 > 0）→ 明確標示紅旗與偏離金額。
+    - 一致（consistent 為 True 且兩分皆 0）→ 陳述通過會計恆等式勾稽（資料品質背書）。
+    - 無基金資料（多為非營利園，未抽期初/期末餘額）→ 誠實說明缺資料、不計分。
+
+    「勾稽」為台灣會計/審計用語：把應相符的數字互相核對、確認一致。
+    """
+    consistent = row.get("fund_recon_consistent")
+    recon = _num(row, "fund_recon_score") or 0.0
+    continuity = _num(row, "fund_continuity_score") or 0.0
+    begin = _num(row, "fund_balance_begin")
+    end = _num(row, "fund_balance_end")
+
+    # 無任何基金資料 → 缺資料（誠實，不放大風險）。
+    if begin is None and end is None and consistent is None:
+        return "無基金餘額資料（此機構未提供期初／期末基金餘額，故不納入勾稽）"
+
+    parts = []
+    if recon > 0:
+        diff = _num(row, "fund_recon_diff")
+        diff_txt = f"，帳列期末與推算差 {diff:,.0f} 元" if diff is not None else ""
+        parts.append(f"同期勾稽不一致（期末≠期初+本期賸餘{diff_txt}），需人工複核")
+    if continuity > 0:
+        cdiff = _num(row, "fund_continuity_diff")
+        cdiff_txt = f"，差 {cdiff:,.0f} 元" if cdiff is not None else ""
+        parts.append(f"跨年度連續性斷裂（本年期初≠上年期末{cdiff_txt}），需人工複核")
+    if parts:
+        return "；".join(parts)
+    # 一致（含 consistent=True 或兩分皆 0）。
+    return "通過會計恆等式勾稽（期末=期初+本期賸餘），且跨年度銜接一致，帳務內部一致"
+
+
 def build_prompt(row):
     """把單園關鍵指標組成給 Claude 的 prompt。row 為 dict-like。"""
     def g(k, default="無資料"):
@@ -104,6 +148,7 @@ def build_prompt(row):
 Beneish 操縱分：{g('beneish_score')}
 孤立森林異常分：{g('iforest_score')}
 年度支出增減：{g('expense_yoy_pct')}%
+基金餘額勾稽：{_fund_recon_fact(row)}
 裁罰次數：{g('penalty_count')} 次
 評鑑等第：{g('eval_grade')}"""
 
@@ -208,6 +253,16 @@ def generate_fallback(row):
         signals.append("收支成長背離、疑似財務操縱")
         suggests.append("收入認列與應計項目")
 
+    # 基金餘額勾稽：只在「不一致」時列為風險訊號（一致不提，避免對帳務健全園誤報）。
+    recon = num("fund_recon_score")
+    continuity = num("fund_continuity_score")
+    if recon > 0:
+        signals.append("基金餘額同期勾稽不一致（期末≠期初＋本期賸餘）")
+        suggests.append("基金餘額帳務與決算數字勾稽")
+    if continuity > 0:
+        signals.append("基金餘額跨年度銜接不上（本年期初≠上年期末）")
+        suggests.append("跨年度基金餘額連續性")
+
     if not signals:
         signals.append("各項指標尚無明顯單一異常，惟綜合分數需留意")
     if not suggests:
@@ -292,6 +347,7 @@ _ANSWERABLE_FIELDS = {
     "beneish_score": ("Beneish 操縱分", "Beneish M-Score 模型"),
     "iforest_score": ("孤立森林異常分", "Isolation Forest 異常偵測"),
     "expense_yoy_pct": ("年度支出增減", "跨年度決算趨勢"),
+    "fund_balance_end": ("期末基金餘額", "公校決算書基金來源用途及餘絀表"),
     "penalty_count": ("裁罰次數", "全國教保資訊網裁罰紀錄"),
     "eval_grade": ("評鑑等第", "教保機構評鑑結果"),
     "district": ("所在行政區", "機構基本資料"),
@@ -308,6 +364,9 @@ _QUESTION_KEYWORDS = {
     "輿情": ["score_sentiment"],
     "風險": ["risk_total", "risk_level"],
     "分數": ["risk_total", "risk_level"],
+    "勾稽": ["fund_balance_end"],
+    "基金": ["fund_balance_end"],
+    "帳": ["fund_balance_end"],
 }
 
 
@@ -392,6 +451,21 @@ def answer(question, entity):
         f"{label} 為 {_fmt(value)}（依據：{source_note}）"
         for label, value, source_note in found
     ]
+
+    # 基金餘額勾稽：問題涉及「勾稽／基金／帳」且該園有勾稽資料時，附白話判讀結論。
+    # 勾稽是「一致/不一致」的判讀（非單純數值），故以完整結論句呈現而非「X 為 N」。
+    q = question or ""
+    if any(kw in q for kw in ("勾稽", "基金", "帳")):
+        has_recon = (_entity_get(entity, "fund_recon_consistent") is not None
+                     or _entity_get(entity, "fund_balance_end") is not None
+                     or _entity_get(entity, "fund_balance_begin") is not None)
+        if has_recon:
+            recon_src = "基金餘額勾稽（會計恆等式：期末=期初+本期賸餘）"
+            statements.append(f"基金餘額勾稽結果：{_fund_recon_fact(entity)}"
+                              f"（依據：{recon_src}）")
+            if recon_src not in sources:
+                sources.append(recon_src)
+
     text = (
         f"依「{name}」現有資料，{'；'.join(statements)}。"
         "以上為需進一步查核之參考訊號，建議就相關憑證與明細優先核對。"
