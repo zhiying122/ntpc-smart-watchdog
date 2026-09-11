@@ -346,7 +346,16 @@ EXTERNAL = os.path.join(ROOT, "data", "external")
 
 
 def _merge_external(df):
-    """併入裁罰/評鑑、地址座標等外部資料（若檔案存在）。"""
+    """併入裁罰/評鑑、地址座標等外部資料（若檔案存在）。
+
+    ⚠️ 名稱對齊注意（規模化時需留意）：本函式以**裸 `park_name` 做 left-merge**，
+    未經名稱正規化（正規化能力見 src/entity_resolver.normalize_name，但該模組
+    目前未接入 live 主幹）。因此若 penalties.csv / geocoded.csv 的 `park_name`
+    寫法與 financials.csv 不同（全形／半形、前後空白、「新北市立」等前綴差異），
+    left-merge 會**靜默失配** → penalty_count / eval / lat / lng 變 NaN，
+    表現為「地圖缺點、裁罰歸零」。目前 60 間園實測皆正確對上；未來擴充資料源
+    時，建議先以 normalize_name 對齊兩邊 park_name，或改用 park_id 為 merge 鍵。
+    """
     # 裁罰與評鑑
     pen_path = os.path.join(EXTERNAL, "penalties.csv")
     if os.path.exists(pen_path):

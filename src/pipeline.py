@@ -2,7 +2,18 @@
 資料整合管線（Data Pipeline, R17.1）
 ========================================
 小小守護員 Smart Watchdog Platform — 整合財務／裁罰／評鑑／收費／地理五類
-資料源，並輸出至既有契約檔（kindergartens_latest.csv / kindergartens.csv）。
+資料源。
+
+⚠️ 實作狀態（務必先讀）：本模組為 **design.md R17 規格對齊實作**，展示可規模化
+的整合／實體解析架構，但**目前未接入實際資料主幹**。現行 live 契約檔
+（data/processed/kindergartens_latest.csv、kindergartens.csv）**實際是由
+`src/risk_score.py` 的 `main()` 產生**（流程見 scripts/rebuild_all.py），
+並非由本模組的 `run_pipeline` / `write_contract_files` 產生。因此：
+  - 追蹤真正的資料流，請看 scripts/rebuild_all.py 與 src/risk_score.py。
+  - 本模組的 `CONTRACT_COLUMNS`（見下）為規格層欄位定義，與 risk_score.py
+    實際輸出的 42 欄**不完全相同**（實際多出 fund_*、penalty_reason/category、
+    eng_* 白盒欄位）。若需契約真相，以 risk_score.py::main() 的 `cols` 為準。
+本模組保留供規格對齊與未來規模化擴充，測試會驗證其行為，但不落地 live 契約檔。
 
 對應 design.md「Components and Interfaces / 12. Data Pipeline + Entity_Resolver」：
 

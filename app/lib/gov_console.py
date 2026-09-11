@@ -106,9 +106,9 @@ class KpiCounts:
 
     Validates: Requirements 2.3
     """
-    high: int = 0            # 高風險機構數（>= 70）
-    mid: int = 0             # 中風險機構數（40–69）
-    low: int = 0             # 低風險機構數（< 40）
+    high: int = 0            # 高風險機構數（優先取 risk_level==高；缺則 grade()>=70）
+    mid: int = 0             # 中風險機構數（優先取 risk_level==中；缺則 grade() 40–69）
+    low: int = 0             # 低風險機構數（優先取 risk_level==低；缺則 grade()<40）
     new_anomaly: int = 0     # 新增異常機構數
     gradable: int = 0        # 可分級機構數（有有效風險分數者）= high + mid + low
     ungradable: int = 0      # 無法分級機構數（風險分數缺失）
@@ -124,11 +124,24 @@ def _iter_scores(df, score_col: str = "risk_total"):
 
 def kpi_counts(df, score_col: str = "risk_total",
                anomaly_col: str = "iforest_score",
-               anomaly_threshold: float = 70.0) -> KpiCounts:
+               anomaly_threshold: float = 70.0,
+               level_col: str = "risk_level") -> KpiCounts:
     """計算 Gov_Console 的 KPI 計數（R2.3, Property 6）。
 
-    以 `grade()` 對每一間可分級機構分級後計數；風險分數缺失（None/NaN）者
-    計入 `ungradable`，不計入 high/mid/low，確保 `high+mid+low == gradable`。
+    分級來源（重要，避免跨頁數字矛盾）：**優先採用契約檔既有的 `risk_level`
+    欄位**（由 src/risk_score.py 的分機構類型百分位分級產生，高/中/低），
+    與主頁 KPI 帶、風險分布、地圖著色、排名表完全同源。僅當該列 `risk_level`
+    缺失（或整份資料無此欄）時，才退回以 `grade()` 的絕對門檻（70/40）即時
+    分級（fallback）。
+
+    為何不直接一律用 `grade()` 絕對門檻：本專案 `risk_total` 是「稽查優先序」
+    的相對分數，實務分布多落在 60 分以下（例：目前資料最高約 57）。若用絕對
+    70/40 門檻計數，會算出「高風險 0 間」，與主頁依 `risk_level` 顯示的高風險
+    間數對不上，造成同一畫面數字矛盾。改採 `risk_level` 為主、絕對門檻為
+    fallback，確保 KPI 與全站一致。
+
+    風險分數缺失（None/NaN）且無 `risk_level` 者計入 `ungradable`，不計入
+    high/mid/low，確保 `high+mid+low == gradable`。
 
     「新增異常機構數」以異常分數欄位（預設 `iforest_score`）達門檻
     （預設 70）之機構數估算——此為可 Demo 的近似定義；缺該欄位時為 0。
@@ -136,13 +149,15 @@ def kpi_counts(df, score_col: str = "risk_total",
     參數
     ----
     df:
-        機構 DataFrame（每園一列），至少含 `score_col`。
+        機構 DataFrame（每園一列），至少含 `score_col` 或 `level_col`。
     score_col:
-        風險分數欄位名（預設 `risk_total`）。
+        風險分數欄位名（預設 `risk_total`），供 fallback 絕對門檻分級用。
     anomaly_col:
         異常分數欄位名（預設 `iforest_score`），供估算新增異常數。
     anomaly_threshold:
         異常分數達此值（含）視為異常（預設 70.0）。
+    level_col:
+        既有等級欄位名（預設 `risk_level`），百分位分級主來源；缺則 fallback。
 
     回傳
     ----
@@ -151,11 +166,24 @@ def kpi_counts(df, score_col: str = "risk_total",
     Validates: Requirements 2.3
     """
     high = mid = low = ungradable = 0
-    for v in _iter_scores(df, score_col):
-        if _is_missing(v):
-            ungradable += 1
-            continue
-        lvl = grade(v)
+    has_level = df is not None and level_col in getattr(df, "columns", [])
+    levels = df[level_col].tolist() if has_level else []
+    scores = list(_iter_scores(df, score_col))
+    n = max(len(levels), len(scores))
+    for i in range(n):
+        # 主來源：既有 risk_level（百分位三級，與主頁/地圖同源）。
+        lvl = None
+        if has_level and i < len(levels):
+            raw = levels[i]
+            if raw is not None and str(raw) in (LEVEL_HIGH, LEVEL_MID, LEVEL_LOW):
+                lvl = str(raw)
+        # Fallback：該列無有效 risk_level 時，才以 grade() 絕對門檻由分數即時分級。
+        if lvl is None:
+            v = scores[i] if i < len(scores) else None
+            if _is_missing(v):
+                ungradable += 1
+                continue
+            lvl = grade(v)
         if lvl == LEVEL_HIGH:
             high += 1
         elif lvl == LEVEL_MID:

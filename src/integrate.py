@@ -2,9 +2,15 @@
 風險引擎輸出串接（Risk Engine Integration, Task 22.1）
 ========================================================
 小小守護員 Smart Watchdog Platform — 將五大風險引擎的輸出串接成單一「已算好」
-的契約資料，並以「附加欄位」方式落地至既有契約檔（kindergartens_latest.csv /
-kindergartens.csv），供三入口（Gov_Console / Inspector_Workspace / Parent_Portal）
+的契約資料，供三入口（Gov_Console / Inspector_Workspace / Parent_Portal）
 與 AI Copilot 直接讀取。
+
+⚠️ 實作狀態（務必先讀）：本模組為 **design.md / Task 22.1 規格對齊實作**，
+展示「五引擎輸出 → 附加欄位 → 契約檔」的端到端串接架構，但**目前未接入 live
+資料主幹**。現行 live 契約檔（kindergartens_latest.csv / kindergartens.csv）
+**實際由 `src/risk_score.py` 的 `main()` 產生**（流程見 scripts/rebuild_all.py）。
+真正的資料流請追 scripts/rebuild_all.py 與 src/risk_score.py；本模組保留供
+規格對齊與未來規模化擴充。
 
 對應需求：
   - R17.1：整合財務／裁罰／評鑑／收費／地理資料的資料管線（本模組串接其上游
