@@ -122,7 +122,7 @@ for f in fields:
         stale = ""
         if f.stale_notice:
             stale = (f"<span style='color:{common.RISK['medium'][0]};"
-                     f"font-weight:600;margin-left:8px;'>⚠ {f.stale_notice}</span>")
+                     f"font-weight:600;margin-left:8px;'>注意：{f.stale_notice}</span>")
         val_cell = f"{val_txt}{stale}<div class='sw-crumb' style='margin-top:4px;'>{meta}</div>"
     else:
         # 查無公開資料（R6.3）：不以推估／預設／空白替代

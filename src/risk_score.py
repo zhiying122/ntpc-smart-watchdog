@@ -115,6 +115,41 @@ def risk_level_percentile(series):
     return ranks.apply(level)
 
 
+def risk_level_by_group(df, score_col="risk_total", group_col="park_type",
+                        min_group=7):
+    """
+    分組百分位相對分級（公平性版）：在每個機構類型內部各自做百分位分級。
+
+    問題背景：公校有逐筆明細 → 有班佛分項；非營利園無明細 → 班佛分項以中性
+    0 計入，財務分被系統性低估。若把兩類機構放同一把尺做全體百分位（見
+    risk_level_percentile），非營利園會被結構性地壓在後段，導致實務上「整類
+    機構被隱形、稽查資源永遠不投向非營利園」的偏誤。
+
+    正解（對齊 R13 同儕比較精神，見 src/peer.py）：同儕比較應在「可比同儕
+    群組」內進行。公校與非營利園屬不同同儕群組，分開排序才公平——每一類都能
+    篩出「該類型中相對最需優先稽查」的機構。
+
+    min_group：某類型樣本數 < min_group 時，該類型改用全體百分位，避免小樣本
+    下百分位分級不穩定（例如某類型只有 3 間，「前 15%」無統計意義）。
+
+    回傳與 df 對齊的等級 Series（高/中/低）。
+    """
+    if group_col not in df.columns:
+        return risk_level_percentile(df[score_col])
+
+    result = pd.Series(index=df.index, dtype="object")
+    all_rank = df[score_col].rank(pct=True)
+    for _gval, idx in df.groupby(group_col).groups.items():
+        sub = df.loc[idx, score_col]
+        if len(sub) >= min_group:
+            result.loc[idx] = risk_level_percentile(sub)
+        else:
+            # 小樣本：退回以全體分布計算的百分位，較穩健。
+            result.loc[idx] = all_rank.loc[idx].apply(
+                lambda r: "高" if r >= 0.85 else ("中" if r >= 0.50 else "低"))
+    return result
+
+
 def risk_level_four(total):
     """
     四級絕對分級（R10.2）：低／中／高／極高（critical）。
@@ -323,8 +358,10 @@ def build(df):
         + WEIGHTS["penalty"] * df["score_penalty"]
         + WEIGHTS["eval"] * df["score_eval"]
     ).round(1)
-    # 主用百分位相對分級（確保有高風險園、符合「稽查優先序」目的）
-    df["risk_level"] = risk_level_percentile(df["risk_total"])
+    # 主用百分位相對分級（確保有高風險園、符合「稽查優先序」目的）。
+    # 【公平性】分機構類型各自做百分位（見 risk_level_by_group）：避免非營利園
+    # 因缺班佛分項在全體混合百分位下被系統性壓低、整類被隱形。
+    df["risk_level"] = risk_level_by_group(df, "risk_total", "park_type", min_group=7)
     # 同時保留絕對門檻分級供對照
     df["risk_level_abs"] = df["risk_total"].apply(risk_level_absolute)
 
@@ -355,7 +392,10 @@ def main():
     # ---------- 給組員的「最新年度快照」：每園一列，供排名表與地圖直接用 ----------
     latest = (out.sort_values("year", ascending=False)
                  .drop_duplicates("park_name", keep="first")
-                 .sort_values("risk_total", ascending=False))
+                 .sort_values("risk_total", ascending=False)).copy()
+    # 分級在快照本身重算：稽查看的是每園最新狀態，相對排名應以「每園一列」的
+    # 最新快照分布為基準（否則多年度重複列會扭曲百分位）。一樣分機構類型各自算。
+    latest["risk_level"] = risk_level_by_group(latest, "risk_total", "park_type", min_group=7)
     snap_path = os.path.join(PROC, "kindergartens_latest.csv")
     latest[cols].to_csv(snap_path, index=False, encoding="utf-8-sig")
     n_geo = latest["lat"].notna().sum() if "lat" in latest.columns else 0

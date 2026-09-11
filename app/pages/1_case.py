@@ -142,7 +142,7 @@ if len(tl_vals) >= 1:
     st.plotly_chart(tfig, width="stretch")
     if timeline_view.change_points:
         for cp in timeline_view.change_points:
-            st.caption(f"⚑ {cp.trigger}")
+            st.caption(f"變化點：{cp.trigger}")
     else:
         st.caption("涵蓋所有可取得年度（由舊到新）；未偵測到統計顯著變化點。")
 else:

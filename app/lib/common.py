@@ -275,7 +275,7 @@ def _css():
     [data-testid="stSidebar"][aria-expanded="false"] * {{ visibility:hidden; }}
     [data-testid="stSidebar"] > div:first-child {{ display:flex; flex-direction:column; height:100%; }}
     [data-testid="stSidebar"] * {{ color:{SIDEBAR_INK}; }}
-    [data-testid="stSidebarNav"] {{ display:none; }}
+    [data-testid="stSidebarNav"] {{ display:none !important; }}
     /* 清掉側欄容器與內容區的頂部預設留白 */
     [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {{ padding:0 !important; }}
     [data-testid="stSidebar"] > div:first-child {{ padding-top:0 !important; }}
@@ -576,7 +576,14 @@ def _sidebar(active_key):
             f"""
             <div style='padding:10px 16px;border-top:1px solid rgba(255,255,255,.08);
                  color:{SIDEBAR_INK};font-size:.82rem;'>
-              <span style='color:{SIDEBAR_INK_DIM};'>👤 目前角色</span><br>
+              <span style='color:{SIDEBAR_INK_DIM};display:inline-flex;
+                   align-items:center;gap:6px;'>
+                <svg width='14' height='14' viewBox='0 0 24 24' fill='none'
+                     stroke='{SIDEBAR_INK_DIM}' stroke-width='1.7'
+                     stroke-linecap='round' stroke-linejoin='round'>
+                  <circle cx='12' cy='8' r='4'/>
+                  <path d='M4 21a8 8 0 0 1 16 0'/></svg>
+                目前角色</span><br>
               <b style='color:#F1F4F7;'>{html.escape(user.get('label', ''))}</b>
             </div>
             """,

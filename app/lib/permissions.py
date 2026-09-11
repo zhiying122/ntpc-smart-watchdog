@@ -13,9 +13,9 @@ A+ RBAC 角色權限架構 —「你能看什麼」（Data-layer Authorization�
 不重寫其邏輯，只在其之上建構「角色 → 可見資料 / 可見頁面」的 RBAC 對映。
 
 三個 Demo 角色（對應 modes.UserType）：
-  - 政府管理者 gov_user   🏛️ — 全轄區決策視角，看得到所有欄位與風險分。
-  - 稽查人員   inspector  🔎 — 單一機構鑑識調查，看得到所有欄位（含 risk/score/證據）。
-  - 家長       parent_user 👨‍👩‍👧 — 公開透明視角，只看得到公開欄位，**不含任何風險分**。
+  - 政府管理者 gov_user    — 全轄區決策視角，看得到所有欄位與風險分。
+  - 稽查人員   inspector   — 單一機構鑑識調查，看得到所有欄位（含 risk/score/證據）。
+  - 家長       parent_user — 公開透明視角，只看得到公開欄位，**不含任何風險分**。
 
 責任 AI：風險資訊不是越多人看越好，而是由角色、職責與必要性決定誰可以看到。
 """
@@ -63,46 +63,45 @@ ROLE_PARENT = "parent_user"    # 家長
 
 VALID_ROLES: tuple[str, ...] = (ROLE_GOV, ROLE_INSPECTOR, ROLE_PARENT)
 
-#: 三個 Demo 角色的可讀中文名與 emoji（供 UI 與簡報引用）。
+#: 三個 Demo 角色的可讀中文名（政府/企業級介面，不使用 emoji 裝飾）。
 ROLE_DISPLAY: dict[str, dict[str, str]] = {
-    ROLE_GOV: {"name": "政府管理者", "emoji": "🏛️"},
-    ROLE_INSPECTOR: {"name": "稽查人員", "emoji": "🔎"},
-    ROLE_PARENT: {"name": "家長", "emoji": "👨‍👩‍👧"},
+    ROLE_GOV: {"name": "政府管理者", "emoji": ""},
+    ROLE_INSPECTOR: {"name": "稽查人員", "emoji": ""},
+    ROLE_PARENT: {"name": "家長", "emoji": ""},
 }
 
 
 def role_label(role: str) -> str:
-    """回傳角色的「emoji + 中文名」（如「🏛️ 政府管理者」）。未知角色回傳原字串。"""
+    """回傳角色的中文名（政府/企業級介面不加 emoji）。未知角色回傳原字串。"""
     info = ROLE_DISPLAY.get(role)
     if not info:
         return str(role)
-    return f"{info['emoji']} {info['name']}"
+    return info["name"]
 
 
 def role_name(role: str) -> str:
-    """回傳角色的中文名（不含 emoji）。"""
+    """回傳角色的中文名。"""
     info = ROLE_DISPLAY.get(role)
     return info["name"] if info else str(role)
 
 
 def role_emoji(role: str) -> str:
-    """回傳角色的 emoji。"""
-    info = ROLE_DISPLAY.get(role)
-    return info["emoji"] if info else "👤"
+    """（保留相容）政府/企業級介面不使用 emoji，一律回傳空字串。"""
+    return ""
 
 
 # ===========================================================================
 # 資料權限矩陣（Data Permission Matrix）
 # ===========================================================================
-# 定義各「資料類別」對三角色的可見性：
-#   FULL    = "✅"  完整可見
-#   PARTIAL = "部分"  部分/去識別可見
-#   NONE    = "❌"  不可見
+# 定義各「資料類別」對三角色的可見性（政府/企業級介面，以文字表達不用符號）：
+#   FULL    = "完整可見"
+#   PARTIAL = "部分可見"  部分/去識別可見
+#   NONE    = "不可見"
 #
 # 可程式查詢（dict），並可產生「可展示表格」供簡報頁（6_governance）使用。
-FULL = "✅"
-PARTIAL = "部分"
-NONE = "❌"
+FULL = "完整可見"
+PARTIAL = "部分可見"
+NONE = "不可見"
 
 #: 資料類別 → {角色: 可見性}。順序即為簡報表格的呈現順序。
 DATA_PERMISSION_MATRIX: dict[str, dict[str, str]] = {
@@ -121,14 +120,14 @@ DATA_PERMISSION_MATRIX: dict[str, dict[str, str]] = {
 
 
 def data_visibility(category: str, role: str) -> str:
-    """查詢某「資料類別」對某角色的可見性（✅/部分/❌）。未知者回傳 ❌。"""
+    """查詢某「資料類別」對某角色的可見性（完整可見/部分可見/不可見）。未知者回傳不可見。"""
     return DATA_PERMISSION_MATRIX.get(category, {}).get(role, NONE)
 
 
 def permission_matrix_table() -> pd.DataFrame:
     """回傳可展示的資料權限矩陣表格（供簡報頁 6_governance 使用）。
 
-    欄位：資料類別 × 三角色（以「emoji 中文名」為欄名），值為 ✅/部分/❌。
+    欄位：資料類別 × 三角色（以中文名為欄名），值為 完整可見/部分可見/不可見。
     """
     columns = {role: role_label(role) for role in VALID_ROLES}
     rows: list[dict[str, Any]] = []
@@ -284,7 +283,7 @@ def get_role_navigation(role: str) -> list[str]:
 # 權限摘要：供 UI 與簡報引用
 # ===========================================================================
 def visible_data_categories(role: str) -> list[str]:
-    """回傳該角色「可見（✅ 或 部分）」的資料類別清單。"""
+    """回傳該角色「可見（完整可見 或 部分可見）」的資料類別清單。"""
     result: list[str] = []
     for category, vis in DATA_PERMISSION_MATRIX.items():
         if vis.get(role, NONE) in (FULL, PARTIAL):
