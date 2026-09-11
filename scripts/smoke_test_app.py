@@ -17,6 +17,10 @@ PAGES = [
     ("風險地圖", os.path.join(APP, "pages", "2_map.py")),
     ("AI 決策支援", os.path.join(APP, "pages", "3_ai.py")),
     ("輿情分析", os.path.join(APP, "pages", "4_sentiment.py")),
+    ("稽查派工決策台", os.path.join(APP, "pages", "5_dispatch.py")),
+    ("資料治理權限矩陣", os.path.join(APP, "pages", "6_governance.py")),
+    ("資料整合中心", os.path.join(APP, "pages", "7_integration.py")),
+    ("系統健康檢查", os.path.join(APP, "pages", "8_health.py")),
 ]
 
 failed = 0
