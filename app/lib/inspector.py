@@ -122,6 +122,10 @@ class PeerRow:
     percentile: float | None
     position: str
     insufficient: bool
+    # 同儕統計量（peer_stats 已算，過去未帶出）：z-score 與穩健偏差。
+    # z_score = (x − 同儕平均)/標準差；robust_deviation 以中位數與 MAD 為基礎抗離群。
+    z_score: float | None = None
+    robust_deviation: float | None = None
 
 
 @dataclass
@@ -437,6 +441,8 @@ def peer_comparison(row, population, by=("park_type",)) -> list[PeerRow]:
             percentile=comp.percentile,
             position=comp.position or "無法判定",
             insufficient=comp.insufficient,
+            z_score=comp.z_score,
+            robust_deviation=comp.robust_deviation,
         ))
     return rows
 
@@ -461,11 +467,44 @@ class AnomalyView:
 
 
 @dataclass
+class AnomalyMethodDetail:
+    """單一異常偵測方法的明細（R8.2, R8.3）。
+
+    露出 anomaly.detect 每個方法的個別結果與其適用性說明（method_applicability），
+    讓稽查員看見「七種方法各自怎麼判、適用什麼、有何限制」——白盒可解釋、
+    多方法交叉驗證的護城河可視化。
+    """
+    method: str                # 方法內部名（isolation_forest/lof/zscore…）
+    label: str                 # 中文顯示名
+    anomaly_type: str          # 點異常/情境異常/集體異常
+    score: float               # 0–100 異常分
+    threshold: float           # 判定門檻
+    flag: bool                 # 是否達門檻
+    applicable: bool           # 樣本是否足夠（False=樣本不足跳過）
+    assumption: str = ""       # 資料前提/假設
+    limitation: str = ""       # 已知限制
+
+
+@dataclass
 class AnomalySummary:
     """機構整體異常偵測摘要（R5.6, R8）。"""
     items: list[AnomalyView] = field(default_factory=list)
     confidence_label: str = "to_confirm"
     hit_count: int = 0
+    # 七種方法的個別明細（含適用性/假設/限制），供護城河可視化。
+    methods: list[AnomalyMethodDetail] = field(default_factory=list)
+
+
+# 方法內部名 → 中文顯示名。
+_ANOMALY_METHOD_LABEL = {
+    "isolation_forest": "孤立森林",
+    "lof": "局部離群因子 (LOF)",
+    "zscore": "Z-score",
+    "robust": "穩健統計 (MAD)",
+    "timeseries": "時間序列 (YoY)",
+    "changepoint": "變化點偵測",
+    "clustering": "分群離群",
+}
 
 
 _ANOMALY_TYPE_LABEL = {
@@ -547,10 +586,34 @@ def anomaly_summary(row, population, history_rows=None) -> AnomalySummary:
             trigger_metrics=trigger_by_type[atype],
         ))
 
+    # 七方法個別明細：帶出每個方法的分數/門檻/旗標與適用性說明（假設/限制）。
+    # 這些資料 anomaly.detect 已算出，過去被丟棄；此處保留以做護城河可視化。
+    method_details: list[AnomalyMethodDetail] = []
+    for m in result.methods:
+        try:
+            note = anomaly.method_applicability(m.method)
+            assumption, limitation = note.assumption, note.limitation
+            atype = note.anomaly_type
+        except ValueError:
+            assumption = limitation = ""
+            atype = m.note.get("anomaly_type", "") if m.note else ""
+        method_details.append(AnomalyMethodDetail(
+            method=m.method,
+            label=_ANOMALY_METHOD_LABEL.get(m.method, m.method),
+            anomaly_type=_ANOMALY_TYPE_LABEL.get(atype, atype),
+            score=round(float(m.score), 1),
+            threshold=round(float(m.threshold), 1),
+            flag=bool(m.flag),
+            applicable=bool(m.applicable),
+            assumption=assumption,
+            limitation=limitation,
+        ))
+
     return AnomalySummary(
         items=items,
         confidence_label=consolidated.confidence_label,
         hit_count=consolidated.hit_count,
+        methods=method_details,
     )
 
 

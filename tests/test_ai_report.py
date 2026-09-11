@@ -283,3 +283,79 @@ def test_last_resort_report_is_sanitized():
     for term in ("違法", "舞弊", "犯罪"):
         # 允許白名單聲明「風險不等於違法」
         assert term not in text.replace("風險不等於違法", "")
+
+
+# --------------------------------------------------------------------------
+# 基金餘額勾稽接入 AI 報告（prompt / fallback / Copilot）
+# --------------------------------------------------------------------------
+def test_prompt_includes_fund_reconciliation_consistent():
+    """勾稽一致的園：prompt facts 應陳述通過會計恆等式勾稽（帳務一致）。"""
+    row = {"park_name": "板橋幼兒園", "fund_recon_consistent": True,
+           "fund_recon_score": 0.0, "fund_continuity_score": 0.0,
+           "fund_balance_begin": 2927106, "fund_balance_end": 4257923}
+    p = build_prompt(row)
+    assert "基金餘額勾稽" in p
+    assert "會計恆等式" in p
+
+
+def test_prompt_flags_fund_reconciliation_inconsistent():
+    """勾稽不一致的園：prompt facts 應標示不一致與需人工複核。"""
+    row = {"park_name": "乙園", "fund_recon_consistent": False,
+           "fund_recon_score": 100.0, "fund_recon_diff": -500000,
+           "fund_continuity_score": 0.0,
+           "fund_balance_begin": 1, "fund_balance_end": 2}
+    p = build_prompt(row)
+    assert "不一致" in p and "複核" in p
+
+
+def test_prompt_fund_missing_data_honest():
+    """無基金資料（如非營利園）：誠實說明未納入勾稽，不杜撰。"""
+    row = {"park_name": "非營利甲園"}
+    p = build_prompt(row)
+    assert "無基金餘額資料" in p
+
+
+def test_fallback_adds_recon_signal_only_when_inconsistent():
+    """fallback：勾稽不一致才列風險訊號；一致園完全不提。"""
+    consistent = {"park_name": "甲園", "risk_total": 30, "risk_level": "中",
+                  "fund_recon_score": 0.0, "fund_continuity_score": 0.0}
+    inconsistent = {"park_name": "乙園", "risk_total": 45, "risk_level": "高",
+                    "fund_recon_score": 100.0, "fund_continuity_score": 0.0}
+    assert "勾稽" not in generate_fallback(consistent)
+    assert "勾稽" in generate_fallback(inconsistent)
+
+
+def test_copilot_answers_reconciliation_question_grounded():
+    """Copilot：問「帳／勾稽／基金」且園有勾稽資料 → 附白話結論與來源、grounded。"""
+    row = {"park_name": "板橋幼兒園", "risk_total": 40, "risk_level": "中",
+           "fund_recon_consistent": True, "fund_recon_score": 0.0,
+           "fund_continuity_score": 0.0,
+           "fund_balance_begin": 2927106, "fund_balance_end": 4257923}
+    ans = answer("這間園的基金餘額帳對不對得起來？", row)
+    assert ans.grounded is True
+    assert "勾稽" in ans.text
+    assert ans.sources  # 附來源
+
+
+def test_copilot_non_reconciliation_question_no_recon():
+    """非勾稽問題不應誤觸勾稽結論。"""
+    row = {"park_name": "板橋幼兒園", "risk_total": 40, "risk_level": "中",
+           "score_financial": 30.0, "fund_recon_consistent": True,
+           "fund_balance_end": 4257923}
+    ans = answer("財務風險如何？", row)
+    assert "基金餘額勾稽結果" not in ans.text
+
+
+def test_fund_recon_fact_has_no_illegality_terms():
+    """勾稽敘述本身不得含違法/舞弊斷言字樣（責任 AI）。"""
+    from src.ai_report import _fund_recon_fact
+    for row in (
+        {"fund_recon_consistent": True, "fund_recon_score": 0.0,
+         "fund_continuity_score": 0.0, "fund_balance_begin": 1, "fund_balance_end": 2},
+        {"fund_recon_consistent": False, "fund_recon_score": 100.0,
+         "fund_recon_diff": -500000, "fund_continuity_score": 0.0,
+         "fund_balance_begin": 1, "fund_balance_end": 2},
+    ):
+        fact = _fund_recon_fact(row)
+        for term in ("違法", "舞弊", "犯罪", "詐欺", "作假帳"):
+            assert term not in fact

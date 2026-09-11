@@ -125,6 +125,108 @@ def yoy_flag(change_pct, threshold=30):
     return abs(change_pct) >= threshold
 
 
+# ---------- 招式：基金餘額勾稽（Fund Balance Reconciliation）----------
+# 「勾稽」為台灣會計/審計正統用語：把應相符的數字互相核對、確認一致。
+# 政府基金會計恆等式：期末基金餘額 = 期初基金餘額 + 本期賸餘(短絀) − 解繳公庫 ± 其他調整。
+# 在最單純（無解繳公庫等調整）情況下即：期末 = 期初 + 本期賸餘。
+# 勾稽「對不起來」代表決算數字內部不一致（可能是登載錯誤、OCR 抽取誤差，
+# 或真實的帳務異常），是強而有力、可解釋的鑑識訊號。
+FUND_RECON_FORMULA = ("基金餘額勾稽：期末基金餘額 = 期初基金餘額 + 本期賸餘(短絀) "
+                      "− 解繳公庫 ± 其他調整")
+
+
+def fund_reconciliation(fund_begin, surplus, fund_end, adjustments=0.0,
+                        tolerance_ratio=0.005):
+    """同期基金餘額勾稽（R7 鑑識，台灣會計用語）。
+
+    驗證會計恆等式：期末基金餘額 ≈ 期初基金餘額 + 本期賸餘(短絀) − 解繳公庫。
+
+    參數
+    ----
+    fund_begin : 期初基金餘額。
+    surplus    : 本期賸餘(短絀)（短絀為負）。
+    fund_end   : 期末基金餘額。
+    adjustments: 解繳公庫等其他調整（預設 0；正值代表減少期末餘額的流出）。
+    tolerance_ratio : 容許誤差比例（相對期末餘額），預設 0.5%。政府決算多以整數元
+                      呈現、極少有四捨五入誤差，故容差設得很小；設 >0 是為容忍
+                      OCR/抽取的個位數雜訊，不放過真正的帳務不一致。
+
+    回傳
+    ----
+    dict：
+      computable   : 是否可勾稽（三個基金數字齊備才可）。
+      expected_end : 依恆等式推算的期末餘額 = 期初 + 本期賸餘 − 調整。
+      diff         : 實際期末 − 推算期末（不一致金額，正負皆可能）。
+      abs_diff     : |diff|。
+      consistent   : |diff| 是否落在容差內（勾稽一致）。
+      score        : 0–100 不一致可疑分（一致=0；不一致依偏離比例線性放大）。
+      formula      : 明確公式字串（R7.9）。
+
+    設計說明
+    --------
+    - 缺任一基金數字 → computable=False、score=0（缺資料不放大風險，R10.5）。
+    - score 以「不一致金額占期末餘額比例」線性映射：偏離達 10% 即滿分 100，
+      使可疑度可解釋且與金額規模無關（大園小園同一把尺）。
+    """
+    b = _to_float(fund_begin)
+    s = _to_float(surplus)
+    e = _to_float(fund_end)
+    adj = _to_float(adjustments) or 0.0
+    if b is None or s is None or e is None:
+        return {"computable": False, "expected_end": None, "diff": None,
+                "abs_diff": None, "consistent": None, "score": 0.0,
+                "formula": FUND_RECON_FORMULA}
+
+    expected_end = b + s - adj
+    diff = e - expected_end
+    abs_diff = abs(diff)
+    # 容差以期末餘額規模為基準；期末為 0 時退回以期初規模，皆為 0 則用絕對 1 元。
+    base = abs(e) or abs(b) or 1.0
+    tolerance = base * tolerance_ratio
+    consistent = abs_diff <= tolerance
+    # 不一致比例 → 0–100 分：偏離達期末餘額 10% 即滿分。
+    score = 0.0 if consistent else round(min(abs_diff / base * 1000, 100), 1)
+    return {
+        "computable": True,
+        "expected_end": round(expected_end, 2),
+        "diff": round(diff, 2),
+        "abs_diff": round(abs_diff, 2),
+        "consistent": consistent,
+        "score": score,
+        "formula": FUND_RECON_FORMULA,
+    }
+
+
+def fund_continuity(prev_fund_end, curr_fund_begin, tolerance_ratio=0.005):
+    """跨年度基金連續性勾稽：本年度期初基金餘額 ≈ 上年度期末基金餘額。
+
+    這是比同期勾稽更難造假的一致性檢核——同一機構相鄰兩年的基金餘額必須銜接。
+    銜接不上代表某一年度數字被調整過或登載錯誤，是重要鑑識訊號。
+
+    回傳與 fund_reconciliation 同構的 dict（computable/diff/abs_diff/consistent/score）。
+    缺任一數字 → computable=False、score=0。
+    """
+    prev_e = _to_float(prev_fund_end)
+    curr_b = _to_float(curr_fund_begin)
+    if prev_e is None or curr_b is None:
+        return {"computable": False, "diff": None, "abs_diff": None,
+                "consistent": None, "score": 0.0,
+                "formula": "跨年度連續性：本年度期初基金餘額 = 上年度期末基金餘額"}
+    diff = curr_b - prev_e
+    abs_diff = abs(diff)
+    base = abs(prev_e) or abs(curr_b) or 1.0
+    consistent = abs_diff <= base * tolerance_ratio
+    score = 0.0 if consistent else round(min(abs_diff / base * 1000, 100), 1)
+    return {
+        "computable": True,
+        "diff": round(diff, 2),
+        "abs_diff": round(abs_diff, 2),
+        "consistent": consistent,
+        "score": score,
+        "formula": "跨年度連續性：本年度期初基金餘額 = 上年度期末基金餘額",
+    }
+
+
 # ---------- 第二層：Beneish M-Score 改良版（非營利園適用）----------
 # 原始 Beneish 為營利公司設計(含銷貨/應收)，幼兒園非營利無此概念。
 # 我們借鑒其核心邏輯：「費用與收入成長背離」「應計項目異常」即操縱訊號。
@@ -234,6 +336,50 @@ def analyze(df):
         lambda r: yoy_change(r.get("income_actual"), r.get("income_last_year")), axis=1
     )
 
+    # 招式：基金餘額勾稽（期末 = 期初 + 本期賸餘）。缺基金欄位者 computable=False、
+    # score=0（多為非營利園，OCR 未抽基金餘額，不放大其風險）。
+    if "fund_balance_begin" in df.columns and "fund_balance_end" in df.columns:
+        recon = df.apply(
+            lambda r: fund_reconciliation(
+                r.get("fund_balance_begin"), r.get("surplus"),
+                r.get("fund_balance_end")), axis=1)
+        df["fund_recon_score"] = [x["score"] for x in recon]
+        df["fund_recon_diff"] = [x["diff"] for x in recon]
+        df["fund_recon_consistent"] = [x["consistent"] for x in recon]
+    else:
+        df["fund_recon_score"] = 0.0
+        df["fund_recon_diff"] = None
+        df["fund_recon_consistent"] = None
+
+    # 跨年度連續性勾稽：同園相鄰兩年「本年度期初 = 上年度期末」。
+    if ("fund_balance_begin" in df.columns and "fund_balance_end" in df.columns
+            and "park_name" in df.columns and "year" in df.columns):
+        cont_score = pd.Series(0.0, index=df.index)
+        cont_diff = pd.Series([None] * len(df), index=df.index, dtype="object")
+        for _pname, idx in df.groupby("park_name").groups.items():
+            g = df.loc[idx].sort_values("year")
+            prev_end = None
+            prev_year = None
+            for i in g.index:
+                curr_year = g.at[i, "year"]
+                curr_begin = g.at[i, "fund_balance_begin"]
+                # 僅在年度「真正相鄰」（相差 1）時才做連續性勾稽，避免因中間
+                # 年度資料缺漏（例如只有 112、114）而誤判為斷裂（假陽性）。
+                if (prev_end is not None and prev_year is not None
+                        and pd.notna(curr_year)
+                        and int(curr_year) - int(prev_year) == 1):
+                    c = fund_continuity(prev_end, curr_begin)
+                    if c["computable"]:
+                        cont_score.at[i] = c["score"]
+                        cont_diff.at[i] = c["diff"]
+                prev_end = g.at[i, "fund_balance_end"]
+                prev_year = curr_year
+        df["fund_continuity_score"] = cont_score
+        df["fund_continuity_diff"] = cont_diff
+    else:
+        df["fund_continuity_score"] = 0.0
+        df["fund_continuity_diff"] = None
+
     # 招式一：班佛定律（正確做法：用逐筆明細金額，跨數量級才有效）
     # 補強：同時算 MAD(偏離程度) 與卡方檢定(統計顯著性)
     mads, levels, benford_scores, ns = [], [], [], []
@@ -280,9 +426,21 @@ def analyze(df):
     df["beneish_tata"] = [d.get("beneish_tata") for d in beneish_details]
 
     # 第四層：Isolation Forest + SHAP（多維異常）
-    iso_features = ["expense_income_ratio", "tuition_income_ratio",
-                    "expense_yoy_pct", "income_yoy_pct", "benford_mad",
-                    "beneish_score"]
+    #
+    # 【指標獨立性 / 避免重複計分】score_financial 已「單獨」計分下列面向：
+    #   收支比(expense_income_ratio)、支出年增率(expense_yoy_pct)、
+    #   班佛(benford_mad→benford_score)、Beneish(beneish_score)。
+    # 若再把它們餵進 iForest，等於同一異常訊號在總分裡被算兩次（隱性加權），
+    # 破壞白盒子「權重=該面向重要性」的可解釋前提，且統計上造成共線性。
+    #
+    # 正解：iForest 只吃「其他分項未單獨計分、且代表不同財務面向」的維度，
+    # 讓六層職責不重疊、權重名副其實：
+    #   - tuition_income_ratio：學雜費占收入比（自籌財源結構），無其他層計分。
+    #   - income_yoy_pct      ：收入年增率（收入面趨勢突變）；支出面已由
+    #                           expense_yoy_pct 單獨計分，收入面未計 → 由此層補足。
+    # 註：賸餘/短絀率已由 score_financial 的 deficit_pts 單獨計分，故不納入本層，
+    #     以維持獨立性。
+    iso_features = ["tuition_income_ratio", "income_yoy_pct"]
     iso_features = [c for c in iso_features if c in df.columns]
     iso_scores, iso_expl = isolation_forest_scores(df, iso_features)
     df["iforest_score"] = iso_scores

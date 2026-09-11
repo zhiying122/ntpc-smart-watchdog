@@ -10,8 +10,10 @@
 前置：已安裝依賴（`pip install -r requirements.txt`）。
 
 ```powershell
-# 1) 若還沒有資料，先產假資料（隊長真資料出來後可跳過此步）
-python scripts/make_mock_data.py
+# 1) 產生正式資料（真引擎，Demo 一律用這個）
+python -m src.risk_score
+# （選用）離線介面 fixture：產到 *_mock.csv，不會覆蓋正式檔
+# python scripts/make_mock_data.py
 
 # 2) 啟動儀表板
 streamlit run app/主頁.py
@@ -45,8 +47,10 @@ streamlit run app/主頁.py
 - `data/processed/kindergartens_latest.csv`（每園一列，排名/地圖/雷達/AI 都用這個）
 - `data/processed/kindergartens.csv`（每園每年一列，僅趨勢圖用）
 
-**真資料替換方式**：隊長跑完 `python -m src.risk_score` 產出同名檔後，直接覆蓋即可，
-介面**不需修改任何程式碼**。目前用 `scripts/make_mock_data.py` 的假資料開發。
+**正式資料來源**：`python -m src.risk_score`（真引擎，讀真實決算/OCR 資料）產出上述兩個
+正式檔，介面直接讀取、**不需修改任何程式碼**。
+`scripts/make_mock_data.py` 僅供離線 fixture，預設輸出到 `*_mock.csv`，不會覆蓋正式檔；
+除非明確加 `--force`（會先警告）。切勿在 Demo 前用假資料覆蓋正式檔。
 
 ---
 

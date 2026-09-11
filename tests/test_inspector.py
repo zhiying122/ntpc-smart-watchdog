@@ -178,6 +178,45 @@ def test_anomaly_summary_three_types_present():
     assert summary.hit_count >= 0
 
 
+def test_anomaly_summary_exposes_seven_method_details():
+    """七方法明細應完整帶出（method/score/threshold/flag/applicable + 適用性）。"""
+    entity = _entity(risk_total=95.0)
+    pop = _population(8) + [entity]
+    summary = inspector.anomaly_summary(entity, pop)
+    # 七種方法都在
+    assert len(summary.methods) == 7
+    names = {m.method for m in summary.methods}
+    assert names == {"isolation_forest", "lof", "zscore", "robust",
+                     "timeseries", "changepoint", "clustering"}
+    for m in summary.methods:
+        assert m.label  # 中文顯示名非空
+        assert m.anomaly_type in ("點異常", "情境異常", "集體異常")
+        assert 0.0 <= m.score <= 100.0
+        assert m.threshold >= 0.0
+        assert isinstance(m.flag, bool)
+        assert isinstance(m.applicable, bool)
+        # 適用的方法應附非空假設/限制（method_applicability 說明）
+        if m.applicable:
+            assert m.assumption
+            assert m.limitation
+        # 不變式：適用時 flag == (score >= threshold)
+        if m.applicable:
+            assert m.flag == (m.score >= m.threshold)
+
+
+def test_peer_comparison_exposes_zscore_and_robust_deviation():
+    """同儕比較應帶出 z-score 與穩健偏差（peer_stats 已算、過去未帶出）。"""
+    entity = _entity(risk_total=95.0)
+    pop = _population(8) + [entity]
+    rows = inspector.peer_comparison(entity, pop)
+    assert rows
+    for r in rows:
+        # 樣本足夠時 z-score/穩健偏差應為數值（非 None）
+        if not r.insufficient and r.value is not None:
+            assert isinstance(r.z_score, float)
+            assert isinstance(r.robust_deviation, float)
+
+
 # --------------------------------------------------------------------------
 # R5.7：證據鏈可追溯
 # --------------------------------------------------------------------------

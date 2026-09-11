@@ -1,9 +1,13 @@
 """
-產生假資料 kindergartens_latest.csv（組員線介面開發用）
+產生假資料（離線介面 fixture）
 ======================================================
-用途：讓「介面與 AI 呈現」線在隊長真資料出爐前先全速開工。
-欄位完全對齊 docs/data-dictionary.md 與 src/risk_score.py 的輸出契約，
-真資料一來，直接用同名檔覆蓋即可，介面不需改動。
+用途：讓「介面與 AI 呈現」線在真資料出爐前先開工的離線 fixture。
+欄位對齊 docs/data-dictionary.md 與 src/risk_score.py 的輸出契約。
+
+⚠️ 正式資料來源是 src/risk_score.py 真引擎（python -m src.risk_score），
+   本腳本產生的是「合成假值」，其計分為簡化版（見下方 WEIGHTS/score_* 註記），
+   與真引擎不完全一致。為避免誤把假資料覆蓋掉真引擎產出的正式檔，本腳本
+   預設輸出到 *_mock 檔名；只有明確加 --force 才會覆蓋正式檔名。
 
 資料基礎：
   - 園名/行政區/地址：data/external/addresses.csv（真實 22 間新北市立幼兒園）
@@ -12,10 +16,11 @@
   - lat/lng：新北市各行政區近似座標（供地圖標點測試）
 
 用法：
-    python scripts/make_mock_data.py
-輸出：
-    data/processed/kindergartens_latest.csv
-    data/processed/kindergartens.csv（多年度，供趨勢圖，簡化為近3年）
+    python scripts/make_mock_data.py          # 輸出到 *_mock.csv（安全，不覆蓋正式檔）
+    python scripts/make_mock_data.py --force   # 覆蓋正式檔（會先警告）
+輸出（預設）：
+    data/processed/kindergartens_latest_mock.csv
+    data/processed/kindergartens_mock.csv（多年度，供趨勢圖）
 """
 import os
 import random
@@ -28,7 +33,11 @@ PROC = os.path.join(ROOT, "data", "processed")
 
 random.seed(20260907)  # 固定種子，結果可重現
 
-# ---------- 分項評分規則（與 src/risk_score.py 保持一致）----------
+# ---------- 分項評分規則（簡化版，僅供 fixture）----------
+# 注意：此為舊的 4 項制簡化權重，與真引擎 src/risk_score.py 的 3 項制
+# （financial 0.50 + penalty 0.34 + eval 0.16，輿情不計分）不同。
+# 本腳本只產離線 fixture，不作為正式資料來源，故保留簡化版即可；
+# 正式分數一律以真引擎為準。
 WEIGHTS = {"financial": 0.45, "penalty": 0.30, "eval": 0.15, "sentiment": 0.10}
 EVAL_MAP = {"優": 0, "甲": 10, "良": 20, "乙": 40, "中": 50,
             "丙": 70, "待改進": 90, "不通過": 100}
@@ -208,8 +217,16 @@ OUT_COLS = ["park_id", "park_name", "park_type", "year", "district", "lat", "lng
             "neg_ratio", "risk_total", "risk_level", "risk_level_abs"]
 
 
-def main():
+def main(force=False):
     os.makedirs(PROC, exist_ok=True)
+    # 防覆蓋：預設寫 *_mock 檔名；只有 --force 才覆蓋真引擎的正式檔名。
+    if force:
+        full_name, latest_name = "kindergartens.csv", "kindergartens_latest.csv"
+        print("⚠️  --force：將以『假資料』覆蓋正式檔 "
+              "kindergartens.csv / kindergartens_latest.csv")
+        print("    正式 Demo 資料請改用真引擎：python -m src.risk_score")
+    else:
+        full_name, latest_name = "kindergartens_mock.csv", "kindergartens_latest_mock.csv"
     addresses = pd.read_csv(os.path.join(EXT, "addresses.csv"))
     penalties = pd.read_csv(os.path.join(EXT, "penalties.csv")) \
         .drop_duplicates("park_name", keep="first")
@@ -230,23 +247,24 @@ def main():
                                      drift, park_type="非營利", id_prefix="NP1"))
     full = pd.concat(frames, ignore_index=True)
     full = finalize(full)
-    full[OUT_COLS].to_csv(os.path.join(PROC, "kindergartens.csv"),
+    full[OUT_COLS].to_csv(os.path.join(PROC, full_name),
                           index=False, encoding="utf-8-sig")
 
     # 最新年度快照（每園一列）
     latest = (full.sort_values("year", ascending=False)
                   .drop_duplicates("park_name", keep="first")
                   .sort_values("risk_total", ascending=False))
-    latest[OUT_COLS].to_csv(os.path.join(PROC, "kindergartens_latest.csv"),
+    latest[OUT_COLS].to_csv(os.path.join(PROC, latest_name),
                             index=False, encoding="utf-8-sig")
 
     print(f"[OK] 已產假資料：{len(latest)} 間園（最新年度快照）")
-    print(f"     data/processed/kindergartens_latest.csv")
-    print(f"     data/processed/kindergartens.csv（{len(full)} 列，多年度）")
+    print(f"     data/processed/{latest_name}")
+    print(f"     data/processed/{full_name}（{len(full)} 列，多年度）")
     print()
     print(latest[["park_name", "risk_total", "risk_level",
                   "score_financial", "score_penalty"]].head(8).to_string(index=False))
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    main(force="--force" in sys.argv)
