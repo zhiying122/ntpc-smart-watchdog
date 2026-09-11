@@ -262,10 +262,15 @@ def authorize_dataframe(df: pd.DataFrame, role: str) -> pd.DataFrame:
 #
 # 說明：3_ai / 4_sentiment 同時服務政府與稽查員（決策支援 + 分析），
 # 因此在兩者的導覽中皆出現；家長只看得到家長頁。
+# 說明（系統切分）：本 app 為「公務後台」，僅服務政府與稽查兩種公務角色。
+# 家長端已切分為獨立的「公眾查詢網」（public/ 獨立進入點、無登入、獨立網域），
+# 因此公務後台的導覽不含家長頁；家長角色在此不對應任何頁面（導覽為空）。
+# ROLE_PARENT 常數與 authorize_dataframe 的去識別化投影仍保留，供公眾查詢網
+# 於資料層取用「移除所有風險欄位後」的公開資料。
 _ROLE_PAGES: dict[str, tuple[str, ...]] = {
     ROLE_GOV: ("主頁", "2_map", "3_ai", "4_sentiment", "6_governance"),
     ROLE_INSPECTOR: ("1_case", "3_ai", "4_sentiment"),
-    ROLE_PARENT: ("5_parent",),
+    ROLE_PARENT: (),  # 家長端已切離為獨立公眾查詢網，公務後台不提供家長頁
 }
 
 

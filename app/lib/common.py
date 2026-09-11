@@ -602,17 +602,16 @@ def _sidebar(active_key):
 # 導覽項目的 icon（用單色圓點 emoji 佔位，實際外觀由 CSS 控制；
 # st.page_link 的 icon 僅接受單一 emoji 或 Material 圖示，這裡用中性符號）。
 _NAV_EMOJI = {
-    "5_parent": "▪",
     "主頁": "▪", "1_case": "▪", "2_map": "▪", "3_ai": "▪", "4_sentiment": "▪",
     "6_governance": "▪",
 }
 
-# 完整導覽清單（含 RBAC 新增的頁面）：在既有 NAV 之上補入案件調查（稽查員）、
-# 家長信任中心（家長）與資料治理權限矩陣（政府），供角色感知導覽依角色過濾。
+# 完整導覽清單（公務後台）：在既有 NAV 之上補入案件調查（稽查員）與資料治理
+# 權限矩陣（政府），供角色感知導覽依角色過濾。
+# 家長信任中心已切分為獨立公眾查詢網（public/公開查詢.py），不再是公務後台頁面。
 # 既有 NAV 不變（向後相容其他引用），角色過濾一律以 NAV_ALL 為來源。
 NAV_ALL = NAV + [
     ("1_case",       "案件調查",         "case",      "pages/1_case.py"),
-    ("5_parent",     "家長信任中心",     "shield",    "pages/5_parent.py"),
     ("6_governance", "資料治理權限矩陣", "shield",    "pages/6_governance.py"),
 ]
 # NAV_ALL 可能因 1_case 已在 NAV（否）而重複；以 key 去重並保留首次出現順序。
@@ -967,3 +966,82 @@ def require_data():
         )
         st.stop()
     return df
+
+
+# ===========================================================================
+# 主動預警面板（Proactive Alert）— 事前主動示警
+# ===========================================================================
+def _load_alert_module():
+    """載入 src.alert（純邏輯預警層）。相容從專案根或測試載入。"""
+    try:
+        from src import alert as _a  # type: ignore
+        return _a
+    except Exception:
+        import importlib
+        import sys as _sys
+        if ROOT not in _sys.path:
+            _sys.path.insert(0, ROOT)
+        return importlib.import_module("src.alert")
+
+
+def active_alert_panel(df, max_rows=8):
+    """政府戰情室「主動示警」面板：以相對門檻自動列出需立即派查／需追蹤的機構。
+
+    對齊題目核心「事前主動示警」：系統不等人工翻報表，主動把落在紅色警報
+    （相對最高風險，建議立即派查）與橘色預警（接近門檻的緩衝區，建議主動
+    追蹤）的機構推到最前面，每筆附觸發原因與建議行動。門檻採相對基準
+    （百分位 + 同儕標準差），任何分數分布下都穩定運作，見 src/alert.py。
+    """
+    alert = _load_alert_module()
+    try:
+        alerts = alert.active_alerts(df)
+        summary = alert.alert_summary(df)
+    except Exception as exc:  # 預警失敗不得中斷主頁其餘內容
+        empty_state("主動示警暫時無法產生", f"預警評估發生問題：{html.escape(str(exc))}",
+                    icon_name="alert")
+        return
+
+    n_crit = summary.get(alert.CRITICAL_ALERT, 0)
+    n_watch = summary.get(alert.WATCHLIST, 0)
+
+    st.markdown(
+        f"<div style='color:{INK_2};font-size:.86rem;margin:2px 0 12px;'>"
+        f"系統依相對風險基準（百分位＋同儕標準差）主動掃描全體機構，"
+        f"自動示警 <b style='color:{RISK_BAR['high']};'>{n_crit}</b> 間建議立即派查、"
+        f"<b style='color:{RISK_BAR['medium']};'>{n_watch}</b> 間建議納入追蹤。"
+        f"此為事前預警：接近門檻者提前示警，不必等惡化跨線才被動發現。</div>",
+        unsafe_allow_html=True,
+    )
+
+    if not alerts:
+        empty_state("目前無達預警門檻的機構",
+                    "全體機構風險相對平穩，維持例行監測。", icon_name="shield")
+        return
+
+    rows = ""
+    for a in alerts[:max_rows]:
+        reason = a.reasons[0] if a.reasons else "綜合風險相對偏高"
+        rows += (
+            "<tr>"
+            f"<td class='l'><span style='display:inline-block;width:8px;height:8px;"
+            f"border-radius:50%;background:{a.color};margin-right:8px;'></span>"
+            f"{html.escape(a.level)}</td>"
+            f"<td class='l'>{html.escape(str(a.park_name))}</td>"
+            f"<td>{a.risk_total:.1f}</td>"
+            f"<td class='l' style='color:{INK_2};'>{html.escape(reason)}</td>"
+            f"<td class='l' style='color:{INK_2};'>{html.escape(a.recommended_action)}</td>"
+            "</tr>"
+        )
+    st.markdown(
+        "<table class='sw-table'><thead><tr>"
+        "<th class='l'>預警等級</th><th class='l'>機構名稱</th><th>風險分</th>"
+        "<th class='l'>主要觸發原因</th><th class='l'>建議行動</th>"
+        f"</tr></thead><tbody>{rows}</tbody></table>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<div style='margin-top:8px;color:{FAINT};font-size:.78rem;'>"
+        f"門檻為相對基準（非寫死絕對分數），可規模化：資料每次更新後由排程／"
+        f"資料管線重新評估，即構成隨資料自動更新的即時預警系統。</div>",
+        unsafe_allow_html=True,
+    )

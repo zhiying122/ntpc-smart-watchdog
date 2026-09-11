@@ -178,9 +178,11 @@ def test_get_role_navigation_inspector():
     assert nav == {"1_case", "3_ai", "4_sentiment"}
 
 
-def test_get_role_navigation_parent_only_parent_page():
+def test_get_role_navigation_parent_has_no_backend_page():
+    # 系統切分後：家長端為獨立公眾查詢網（public/），公務後台不再提供家長頁，
+    # 故家長角色在公務後台的導覽為空。家長端不經公務後台的 RBAC 導覽。
     nav = perm.get_role_navigation(PARENT)
-    assert nav == ["5_parent"]  # 家長只看得到家長頁
+    assert nav == []
 
 
 def test_get_role_navigation_parent_excludes_all_gov_inspector_pages():

@@ -355,6 +355,21 @@ _LOGIN_CSS = """
 /* 「改用帳號登入」expander：白底、圓角、與上方角色區明顯分隔 */
 [data-testid="stExpander"] { margin-top:24px !important; border-radius:10px;
   border:1px solid #DCE3EC; background:rgba(255,255,255,.7); }
+
+/* ---- 公務入口門面（Government Portal）---- */
+.gov-topbar { max-width:520px; margin:0 auto 8px; text-align:center;
+  font-size:.82rem; color:#5A626D; letter-spacing:.02em; }
+.gov-portal { max-width:520px; margin:8px auto 0; }
+.gov-card { border:1px solid #D3DCE6; border-top:3px solid #2C5D8F;
+  border-radius:10px; background:#FFFFFF; padding:26px 30px 24px;
+  box-shadow:0 2px 6px rgba(28,52,84,.06), 0 8px 24px rgba(28,52,84,.05); }
+.gov-card .sec { color:#5A626D; font-size:.74rem; font-weight:700;
+  letter-spacing:.1em; margin:2px 0 10px; }
+.gov-sso-note { color:#6B7280; font-size:.78rem; line-height:1.7;
+  margin-top:2px; }
+.gov-secbanner { max-width:520px; margin:16px auto 0; text-align:center;
+  color:#4E7A63; font-size:.78rem; }
+.gov-secbanner .lock { color:#2C5D8F; }
 </style>
 """
 
@@ -365,58 +380,77 @@ def render_login() -> None:
 
     st.markdown(_LOGIN_CSS, unsafe_allow_html=True)
 
+    # ---- 公務入口門面（政府級單一登入，非「選擇角色」）----
     st.markdown(
         f"""
+        <div class="gov-topbar">新北市政府教育局　·　教保機構監理數位平台</div>
         <div class="login-wrap" style="text-align:center;">
           <div class="login-logo">{_login_svg('shield', 28, '#2C5D8F', 1.7)}</div>
           <div class="login-title">Fiscalint</div>
-          <div class="login-sub">教保機構智慧風險預警管理系統</div>
-          <div class="login-hint">請選擇對應的權限角色進入系統（RBAC 角色權限控管展示）</div>
+          <div class="login-sub">教保機構智慧風險預警管理系統（公務入口）</div>
+          <div class="login-hint">本系統為公務內部系統，僅限授權公務人員登入使用</div>
           <div class="login-divider"></div>
-          <div class="login-sec" style="text-align:left;">選擇角色</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    roles = [
-        ("gov", "政府管理者", "全轄區風險總覽、資源配置、稽查分派與情境模擬。",
-         permissions.ROLE_GOV, "government_demo", "login_gov"),
-        ("inspect", "稽查人員", "單一機構鑑識調查、證據鏈與 AI 調查輔助。",
-         permissions.ROLE_INSPECTOR, "inspector_demo", "login_inspector"),
-        ("parent", "家長", "公開透明資訊查詢：收費、評鑑（不含任何風險分數）。",
-         permissions.ROLE_PARENT, "parent_demo", "login_parent"),
-    ]
-    cols = st.columns(3, gap="large")
-    for col, (ic, rname, rdesc, role, uname, key) in zip(cols, roles):
-        with col:
-            st.markdown(
-                f"""
-                <div class="role-card">
-                  <div class="ico">{_login_svg(ic, 22, '#2C5D8F', 1.7)}</div>
-                  <div class="rname">{rname}</div>
-                  <div class="rdesc">{rdesc}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            if st.button(f"以{rname}身分進入", use_container_width=True,
-                         type="primary", key=key):
-                login(role, username=uname)
-                st.rerun()
-
-    st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
-
-    with st.expander("改用帳號密碼登入"):
-        st.caption("Demo 帳密僅供競賽展示，非正式環境驗證機制。")
-        with st.form("credential_login"):
-            username = st.text_input("帳號", placeholder="例如 government_demo")
+    # ---- 公務帳號登入（實際走既有帳密驗證；SSO/TW FidO 為生產環境架構）----
+    portal_l, portal_c, portal_r = st.columns([1, 2.2, 1])
+    with portal_c:
+        st.markdown("<div class='gov-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='sec'>公務帳號登入</div>", unsafe_allow_html=True)
+        with st.form("gov_credential_login"):
+            username = st.text_input(
+                "公務識別碼 / 員工編號",
+                placeholder="請輸入公務帳號")
             password = st.text_input("密碼", type="password")
-            submitted = st.form_submit_button("登入")
+            submitted = st.form_submit_button("登入", use_container_width=True)
         if submitted:
             role = login_with_credentials(username, password)
             if role is None:
-                st.error("帳號或密碼錯誤，請確認 Demo 帳密。")
+                st.error("帳號或密碼錯誤，請確認公務帳號。")
+            elif role == permissions.ROLE_PARENT:
+                # 公務入口不接受家長角色（家長端為獨立公眾查詢網）。
+                _audit(actor=username or "unknown", action="ACCESS_DENIED",
+                       target="parent_role_on_gov_portal")
+                logout()
+                st.error("此為公務入口，家長／民眾請改用「公開查詢網」。")
             else:
-                st.success(f"登入成功：{permissions.role_label(role)}")
+                st.success(
+                    "登入成功，系統依權限自動導向對應工作區："
+                    f"{permissions.role_label(role)}")
                 st.rerun()
+        st.markdown(
+            "<div class='gov-sso-note'>"
+            "本系統於生產環境對接「新北市政府單一登入（SSO）」與「行動自然人憑證"
+            "（TW FidO）」進行身分識別；登入後由後端解析職權代碼自動分流（科長 →"
+            "全轄區戰情室、稽查人員 → 稽查工作台），使用者無需亦無權自選角色。"
+            "現為競賽驗證環境，暫以公務帳號模擬 SSO 身分交換。</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # ---- 競賽驗證環境：SSO 身分模擬（誠實標示，非生產功能）----
+        with st.expander("競賽驗證環境：模擬 SSO 身分登入"):
+            st.caption(
+                "以下為競賽驗證用之身分模擬，對應生產環境由 SSO/TW FidO 解出的"
+                "公務職權。生產環境無此手動選擇；此處僅供評審快速檢視兩種公務視角。")
+            sim_gov, sim_ins = st.columns(2)
+            with sim_gov:
+                if st.button("模擬：局處決策者（科長）", use_container_width=True,
+                             key="sim_login_gov"):
+                    login(permissions.ROLE_GOV, username="government_demo")
+                    st.rerun()
+            with sim_ins:
+                if st.button("模擬：第一線稽查人員", use_container_width=True,
+                             key="sim_login_inspector"):
+                    login(permissions.ROLE_INSPECTOR, username="inspector_demo")
+                    st.rerun()
+
+    st.markdown(
+        "<div class='gov-secbanner'><span class='lock'>&#128274;</span> "
+        "本系統已落實 RBAC 角色權限控管與資料層授權（權限在資料層控管，"
+        "非前端隱藏）；所有登入、存取與判定操作皆寫入不可竄改稽核軌跡。</div>",
+        unsafe_allow_html=True,
+    )
