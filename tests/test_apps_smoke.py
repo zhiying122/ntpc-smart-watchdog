@@ -87,6 +87,17 @@ def test_gov_backend_renders_after_inspector_login():
     assert not at.exception, f"公務後台（稽查員登入主頁）執行期例外：{at.exception}"
 
 
+def test_dispatch_page_renders_for_gov():
+    # 稽查派工決策台（政府頁）應能以政府身分渲染，不丟真實例外。
+    at = AppTest.from_file(os.path.join(ROOT, "app", "pages", "5_dispatch.py"),
+                           default_timeout=60)
+    at.session_state["auth_role"] = "gov_user"
+    at.session_state["auth_username"] = "government_demo"
+    at.run()
+    assert _is_only_pagelink_harness_limitation(at.exception), (
+        f"派工決策台真實執行期例外：{at.exception}")
+
+
 def test_gov_backend_parent_role_denied_no_exception():
     # 家長角色即使被塞進 session，主頁 require_role 也應擋下且不丟例外。
     at = AppTest.from_file(GOV_APP, default_timeout=60)
