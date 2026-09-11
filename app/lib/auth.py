@@ -308,10 +308,11 @@ _LOGIN_CSS = """
 .stApp [data-testid="stAppViewContainer"] > .main {
   background:transparent !important; }
 [data-testid="stHeader"] { height:0 !important; }
-/* 內容區：頂端貼齊、置中、不要偏左，適度上留白 */
+/* 內容區：頂端貼齊、置中收窄（登入畫面較窄，角色卡不撐滿整個視窗）、適度上留白 */
 .stApp [data-testid="stAppViewContainer"] > .main .block-container,
 .stApp [data-testid="stMain"] .block-container {
-  padding-top:40px !important; background:transparent !important; }
+  padding-top:40px !important; background:transparent !important;
+  max-width:860px !important; margin:0 auto !important; }
 .login-wrap { max-width:820px; margin:12px auto 0; }
 /* Logo 圓形淡藍底，襯托盾牌，增加識別感 */
 .login-logo { width:56px; height:56px; border-radius:50%;

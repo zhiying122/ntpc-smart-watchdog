@@ -251,13 +251,14 @@ def _css():
     .stApp {{ background:var(--bg);
       font-feature-settings:'tnum' 1; font-variant-numeric:tabular-nums; }}
     /* 統一 grid：所有 section 共用同一左右邊界與最大寬 */
-    .block-container {{ padding:var(--s5) var(--page-px) var(--s8); max-width:var(--page-max); }}
+    .block-container {{ padding:var(--s2) var(--page-px) var(--s8); max-width:var(--page-max); }}
     /* Streamlit 垂直堆疊間距統一（元件間距）*/
     [data-testid="stVerticalBlock"] {{ gap:var(--comp-gap); }}
 
     #MainMenu, footer {{ visibility:hidden; }}
     [data-testid="stDecoration"] {{ display:none; }}
-    [data-testid="stHeader"] {{ background:transparent; }}
+    /* 頂部 Streamlit header 條歸零高度，消除頁面最上方的空白留白 */
+    [data-testid="stHeader"] {{ background:transparent; height:0 !important; min-height:0 !important; }}
     [data-testid="stSidebarCollapsedControl"] {{ visibility:visible !important; display:flex !important; }}
 
     h1,h2,h3,h4 {{ color:var(--ink); font-weight:600; letter-spacing:.01em; }}
@@ -427,13 +428,26 @@ def _css():
 
     /* ===== 頁面 Header + Breadcrumb（精準層級）===== */
     .sw-topbar {{ display:flex; align-items:flex-end; justify-content:space-between;
-      border-bottom:1px solid var(--border); padding-bottom:var(--s4); margin-bottom:var(--s6); gap:var(--s4); }}
+      border-bottom:1px solid var(--border); padding-bottom:var(--s3); margin-bottom:var(--s4); gap:var(--s4); }}
     .sw-crumb {{ color:var(--muted); font-size:.74rem; letter-spacing:.04em; margin-bottom:6px; }}
     .sw-crumb b {{ color:var(--ink2); font-weight:500; }}
     .sw-ptitle {{ font-size:1.4rem; font-weight:700; color:var(--ink); line-height:1.25; }}
     .sw-psub {{ color:var(--muted); font-size:.82rem; margin-top:5px; line-height:1.4; }}
     .sw-meta {{ text-align:right; color:var(--muted); font-size:.72rem; line-height:1.8; white-space:nowrap; }}
     .sw-meta b {{ color:var(--ink2); font-weight:600; font-variant-numeric:tabular-nums; }}
+    /* 右上角帳號區：目前登入角色（登出按鈕於下方以 Streamlit 元件呈現） */
+    /* 帳號列：角色膠囊 + 登出膠囊，同形狀、緊鄰並排、靠右。 */
+    .sw-acctbar {{ display:flex; align-items:center; justify-content:flex-end;
+      gap:8px; margin-bottom:8px; }}
+    .sw-acct {{ display:inline-flex; align-items:center; gap:6px; justify-content:center;
+      height:32px; padding:0 14px; border:1px solid var(--border-strong);
+      border-radius:999px; background:var(--surface); white-space:nowrap;
+      box-sizing:border-box; text-decoration:none; }}
+    .sw-acct-role {{ color:var(--ink); font-size:.78rem; font-weight:600; }}
+    /* 登出：與角色膠囊同形狀的可點擊連結；hover 變主色。 */
+    .sw-logout {{ color:var(--ink2); font-size:.78rem; font-weight:600; cursor:pointer;
+      transition:all .14s ease; }}
+    .sw-logout:hover {{ border-color:var(--primary); color:var(--primary); }}
 
     /* ===== KPI stat：四格等寬等高、baseline 一致 ===== */
     .sw-stats {{ display:flex; gap:1px; background:var(--border); border:1px solid var(--border);
@@ -569,29 +583,7 @@ def _sidebar(active_key):
                 if key in allowed_keys:
                     st.page_link(page, label=disp, icon=_NAV_EMOJI.get(key, "▪"))
 
-    # --- 3) 目前登入角色 + 登出（HTML + 按鈕）---
-    if current_role is not None:
-        user = auth.get_current_user() or {}
-        st.sidebar.markdown(
-            f"""
-            <div style='padding:10px 16px;border-top:1px solid rgba(255,255,255,.08);
-                 color:{SIDEBAR_INK};font-size:.82rem;'>
-              <span style='color:{SIDEBAR_INK_DIM};display:inline-flex;
-                   align-items:center;gap:6px;'>
-                <svg width='14' height='14' viewBox='0 0 24 24' fill='none'
-                     stroke='{SIDEBAR_INK_DIM}' stroke-width='1.7'
-                     stroke-linecap='round' stroke-linejoin='round'>
-                  <circle cx='12' cy='8' r='4'/>
-                  <path d='M4 21a8 8 0 0 1 16 0'/></svg>
-                目前角色</span><br>
-              <b style='color:#F1F4F7;'>{html.escape(user.get('label', ''))}</b>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        if st.sidebar.button("登出", key="sidebar_logout", use_container_width=True):
-            auth.logout()
-            st.rerun()
+    # --- 3) 目前登入角色 + 登出：已移至右上角 header（見 _render_topbar_account）---
 
     # --- 4) System Status footer（HTML）---
     st.sidebar.markdown(
@@ -659,6 +651,37 @@ def setup_page(page_title, header_title, subtitle=None, layout="wide",
     crumb_txt = crumb or "Fiscalint"
     module_txt = module or header_title
     sub = f"<div class='sw-psub'>{html.escape(subtitle)}</div>" if subtitle else ""
+
+    # 登出：以查詢參數 ?logout=1 觸發（純 HTML 連結點擊），在此處理並清 session。
+    if st.query_params.get("logout") == "1":
+        auth.logout()
+        try:
+            del st.query_params["logout"]
+        except Exception:
+            st.query_params.clear()
+        st.rerun()
+
+    current_role = auth.get_current_role()
+
+    # 帳號膠囊（角色 + 登出）：合併進 header 右側 sw-meta 區塊，成為 header 的一部分，
+    # 避免與 header 橫幅成為兩個獨立區塊而重疊。已登入才顯示。
+    acct_html = ""
+    if current_role is not None:
+        user = auth.get_current_user() or {}
+        _usvg = (
+            "<svg width='14' height='14' viewBox='0 0 24 24' fill='none' "
+            f"stroke='{INK_MUTED}' stroke-width='1.7' stroke-linecap='round' "
+            "stroke-linejoin='round'><circle cx='12' cy='8' r='4'/>"
+            "<path d='M4 21a8 8 0 0 1 16 0'/></svg>"
+        )
+        acct_html = (
+            f"<div class='sw-acctbar'>"
+            f"<div class='sw-acct'>{_usvg}"
+            f"<span class='sw-acct-role'>{html.escape(user.get('label', ''))}</span></div>"
+            f"<a class='sw-acct sw-logout' href='?logout=1' target='_self'>登出</a>"
+            f"</div>"
+        )
+
     st.markdown(
         f"""
         <div class='sw-topbar'>
@@ -668,6 +691,7 @@ def setup_page(page_title, header_title, subtitle=None, layout="wide",
             {sub}
           </div>
           <div class='sw-meta'>
+            {acct_html}
             <div>資料更新　<b>{data_updated_at()}</b></div>
           </div>
         </div>
