@@ -145,20 +145,27 @@ def permission_matrix_table() -> pd.DataFrame:
 # 家長公開欄位白名單：以實際 CSV 欄位命名為準（park_id/park_name/ownership/
 # park_type/district/address/tuition_actual/eval_grade 與公開相關欄位）。
 # 此清單**刻意不含** risk_total/risk_level/risk_level_abs/score_*/任何排序衍生欄位。
-_PARENT_PUBLIC_FIELDS: frozenset[str] = frozenset({
-    "park_id",         # 機構識別碼（非分數衍生）
-    "park_name",       # 機構名稱
-    "ownership",       # 公私立別（若資料集提供）
-    "park_type",       # 機構類型（公立/非營利…）
-    "district",        # 行政區
-    "address",         # 地址
-    "tuition_actual",  # 公開收費（實際）
-    "tuition_info",    # 公開收費資訊（契約欄位）
-    "eval_grade",      # 公開評鑑等第
-    "public_eval",     # 公開評鑑結果（契約欄位）
-    "public_penalty",  # 公開裁罰紀錄（契約欄位）
+#
+# 【單一來源對齊】本清單 = modes.PUBLIC_WHITELIST_FIELDS（公眾查詢網的語意層
+# 白名單，權威來源）∪ 本模組專屬的實際 CSV 欄位。兩份白名單服務不同層：
+#   - modes.PUBLIC_WHITELIST_FIELDS：PublicInstitutionView 的語意欄位
+#     （ownership/tuition_info/public_eval/public_penalty/field_sources/
+#      stale_flags…），供公眾查詢網呈現層使用。
+#   - _PARENT_PUBLIC_FIELDS：DataFrame 投影用的實際 CSV 欄位（park_type/
+#     tuition_actual/eval_grade…）。
+# 以「聯集」方式建構，確保任一邊新增公開語意欄位時，家長 DataFrame 投影會
+# 自動涵蓋，不會發生「改一邊漏改另一邊」的落差。真正的洩漏防線是共用的
+# 黑名單 modes._is_forbidden_key（見 _parent_authorize），白名單只是「允許
+# 呈現」的正面表列，黑名單優先。
+_PARENT_CSV_EXTRA_FIELDS: frozenset[str] = frozenset({
+    "park_type",       # 機構類型（公立/非營利…）；CSV 實際欄位
+    "tuition_actual",  # 公開收費（實際）；CSV 實際欄位
+    "eval_grade",      # 公開評鑑等第；CSV 實際欄位
     "year",            # 年度（識別用，非分數）
 })
+_PARENT_PUBLIC_FIELDS: frozenset[str] = frozenset(
+    getattr(modes, "PUBLIC_WHITELIST_FIELDS", frozenset())
+) | _PARENT_CSV_EXTRA_FIELDS
 
 
 def get_allowed_fields(role: str) -> set[str]:
@@ -185,9 +192,19 @@ def get_allowed_fields(role: str) -> set[str]:
 
 #: 完整風險/鑑識欄位（政府與稽查員可見；家長絕不可見）。用於 get_allowed_fields
 #: 對 gov/inspector 的「明示允許清單」與測試對照。
+#:
+#: 註：本集合列出「所有可能出現在風險資料中、家長絕不可見」的欄位，作為授權
+#: 對照與防禦性清單，涵蓋範圍**刻意大於**目前 live 契約檔的實際欄位。
+#: 特別是 `score_sentiment`（輿情分項）——目前輿情尚未接入計分（WEIGHTS 中
+#: 權重為 0，見 src/risk_score.py），契約檔 kindergartens_latest.csv / .csv
+#: **實際並無此欄**。此處仍列入，是為了「輿情日後接上時，家長投影已預先擋住」
+#: 的前瞻防禦；因家長投影採白名單為主、黑名單為輔，即使此欄不存在也無副作用
+#: （不會誤刪、不會 KeyError）。若要對照 live 契約真實欄位，請以 risk_score.py::
+#: main() 的 `cols` 為準。
 _FULL_RISK_FIELDS: frozenset[str] = frozenset({
     "risk_total", "risk_level", "risk_level_abs",
-    "score_financial", "score_penalty", "score_eval", "score_sentiment",
+    "score_financial", "score_penalty", "score_eval",
+    "score_sentiment",  # 前瞻防禦欄位：輿情尚未計分，契約檔目前無此欄（見上註）
     "income_actual", "expense_actual", "surplus", "expense_income_ratio",
     "benford_mad", "benford_sample_n", "benford_score", "benford_chi2",
     "benford_pvalue", "benford_significant",

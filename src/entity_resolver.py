@@ -3,6 +3,14 @@
 ====================================================
 小小守護員 Smart Watchdog Platform — 跨資料源、跨年度的機構實體解析。
 
+⚠️ 實作狀態（務必先讀）：本模組為 **design.md R17 規格對齊實作**，是
+`src/pipeline.py` / `src/integrate.py` 的依賴。這三者形成一套完整、可規模化的
+整合層，但**目前未接入 live 資料主幹**。現行 live 契約檔實際由
+`src/risk_score.py` 產生，其外部資料（裁罰／座標）是以**裸 park_name
+left-merge**（見 risk_score._merge_external），並未經過本模組的名稱正規化。
+本模組保留供規格對齊與未來規模化擴充（屆時可用 `normalize_name` 消除全形／
+前綴差異造成的靜默失配）。
+
 對應 design.md「Components and Interfaces / 12. Data Pipeline + Entity_Resolver」：
 
     def resolve_entity(records) -> list[ResolvedEntity]
