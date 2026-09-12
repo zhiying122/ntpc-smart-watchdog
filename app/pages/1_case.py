@@ -20,18 +20,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 from lib import common  # noqa: E402
 from lib import inspector  # noqa: E402
-from lib import permissions  # noqa: E402
 
 common.setup_page(
     page_title="Fiscalint｜案件調查",
     header_title="案件調查工作區",
     subtitle="單一受監理機構的鑑識會計調查與風險評估。",
     module="案件調查",
-    allowed_roles=[permissions.ROLE_INSPECTOR],
 )
 
-# 資料授權層：稽查員為全欄位可見（含 risk/score/證據），仍走一致流程。
-df = permissions.authorize_dataframe(common.require_data(), permissions.ROLE_INSPECTOR)
+# 公務後台全欄位可見（含 risk/score/證據）。
+df = common.require_data()
 full = common.load_full()
 
 # ---------- 選案件 ----------
@@ -89,6 +87,10 @@ with col_radar:
     dims = [d.label for d in radar.dimensions]
     vals = [d.subscore for d in radar.dimensions]
     fig = go.Figure()
+    if not vals:
+        # 防禦：分項為空時不畫雷達（正常資料不會發生）。
+        common.empty_state("無分項資料", "此機構缺可呈現的風險分項。")
+        st.stop()
     fig.add_trace(go.Scatterpolar(
         r=vals + [vals[0]], theta=dims + [dims[0]],
         fill="toself", fillcolor=common.hex_rgba(color, 0.18),

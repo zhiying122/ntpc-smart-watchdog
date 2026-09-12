@@ -117,6 +117,7 @@ def build_peer_group(
 # --------------------------------------------------------------------------
 def _collect_values(group: PeerGroup, metric: str) -> list[float]:
     """從群組成員收集指定指標的有效數值（排除 None 與非數值）。"""
+    import math
     values: list[float] = []
     for rec in group.members:
         v = rec.get(metric)
@@ -125,7 +126,12 @@ def _collect_values(group: PeerGroup, metric: str) -> list[float]:
         if isinstance(v, bool):  # bool 是 int 子類，明確排除避免誤計
             continue
         if isinstance(v, (int, float)):
-            values.append(float(v))
+            fv = float(v)
+            # 排除 NaN（附幼等無財報園的分項可能為 NaN），否則會污染
+            # median/mean/stdev 使全部統計量變 NaN。
+            if math.isnan(fv):
+                continue
+            values.append(fv)
     return values
 
 

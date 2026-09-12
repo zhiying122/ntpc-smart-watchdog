@@ -165,6 +165,24 @@ def _get(row, key, default=None):
     return v
 
 
+def _num(v, default=None):
+    """安全轉為 float；None/NaN/非數值字串一律回 default（不拋例外）。
+
+    防禦性設計：五類分析等處會對來源欄位做 float()/int() 比較，若欄位為非數值
+    字串（如空字串、'—'）會 ValueError。此 helper 統一把不可轉數值者視為缺值。
+    """
+    if v is None:
+        return default
+    if isinstance(v, bool):
+        return default
+    if isinstance(v, (int, float)):
+        return default if (isinstance(v, float) and math.isnan(v)) else float(v)
+    try:
+        return float(str(v).strip())
+    except (TypeError, ValueError):
+        return default
+
+
 def _to_dict(row):
     """把 pandas.Series/dict 統一轉為純 dict（供 src 模組使用）。"""
     if row is None:
@@ -342,9 +360,11 @@ def five_category_analysis(row) -> list[CategoryAnalysis]:
     if surplus is not None:
         fin_evidence.append(("本期賸餘／短絀", _fmt(surplus, 0)))
     if fin_evidence:
-        if ratio is not None and float(ratio) > 1:
-            fin_concl = f"支出達收入的 {float(ratio):.2f} 倍，呈現入不敷出，需查核支出結構。"
-        elif surplus is not None and float(surplus) < 0:
+        _ratio_n = _num(ratio)
+        _surplus_n = _num(surplus)
+        if _ratio_n is not None and _ratio_n > 1:
+            fin_concl = f"支出達收入的 {_ratio_n:.2f} 倍，呈現入不敷出，需查核支出結構。"
+        elif _surplus_n is not None and _surplus_n < 0:
             fin_concl = "本期呈現短絀，基金可能受侵蝕，建議檢視收支平衡。"
         else:
             fin_concl = "財務收支大致平衡，未見明顯失衡訊號。"
@@ -356,8 +376,10 @@ def five_category_analysis(row) -> list[CategoryAnalysis]:
     tuition = _get(entity, "tuition_actual")
     if tuition is not None:
         fee_evidence = [("學雜費收入", _fmt(tuition, 0))]
-        if income is not None and float(income) > 0:
-            share = float(tuition) / float(income) * 100
+        _income_n = _num(income)
+        _tuition_n = _num(tuition)
+        if _income_n is not None and _income_n > 0 and _tuition_n is not None:
+            share = _tuition_n / _income_n * 100
             fee_evidence.append(("學雜費占收入", _fmt(share, 1, "%")))
             fee_concl = f"學雜費占收入約 {share:.1f}%，可對照公告收費標準核對是否超收。"
         else:
@@ -368,10 +390,11 @@ def five_category_analysis(row) -> list[CategoryAnalysis]:
 
     # ---- 3) 營運 ----
     yoy = _get(entity, "expense_yoy_pct")
-    if yoy is not None:
+    _yoy_n = _num(yoy)
+    if _yoy_n is not None:
         ops_evidence = [("年度支出增減", _fmt(yoy, 1, "%"))]
-        if abs(float(yoy)) >= 20:
-            ops_concl = f"年度支出較前年變動 {float(yoy):.0f}%，波動偏大，建議查核大額支出。"
+        if abs(_yoy_n) >= 20:
+            ops_concl = f"年度支出較前年變動 {_yoy_n:.0f}%，波動偏大，建議查核大額支出。"
         else:
             ops_concl = "營運支出年度變動在常態範圍。"
         out.append(CategoryAnalysis("營運", ops_concl, ops_evidence, True, _SOURCE_OPS))
@@ -379,16 +402,16 @@ def five_category_analysis(row) -> list[CategoryAnalysis]:
         out.append(CategoryAnalysis("營運", "無資料", [], False, _SOURCE_OPS))
 
     # ---- 4) 法規（裁罰/評鑑）----
-    pen = _get(entity, "penalty_count")
+    pen = _num(_get(entity, "penalty_count"))   # 非數值字串 → None（安全）
     grade = _get(entity, "eval_grade")
     legal_evidence = []
     if pen is not None:
-        legal_evidence.append(("裁罰次數", f"{int(float(pen))}"))
+        legal_evidence.append(("裁罰次數", f"{int(pen)}"))
     if grade not in (None, ""):
         legal_evidence.append(("評鑑等第", str(grade)))
     if legal_evidence:
-        if pen is not None and int(float(pen)) > 0:
-            legal_concl = f"已有 {int(float(pen))} 次裁罰紀錄，屬已知風險標的，建議查核改善情形。"
+        if pen is not None and int(pen) > 0:
+            legal_concl = f"已有 {int(pen)} 次裁罰紀錄，屬已知風險標的，建議查核改善情形。"
         else:
             legal_concl = "查無裁罰紀錄；評鑑結果供綜合研判參考。"
         out.append(CategoryAnalysis("法規", legal_concl, legal_evidence, True, _SOURCE_LEGAL))

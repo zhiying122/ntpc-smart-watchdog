@@ -61,7 +61,6 @@ def score_financial(row):
     benford = _z(row.get("benford_score"))
     beneish = _z(row.get("beneish_score"))
     iforest = _z(row.get("iforest_score"))
-    outlier = 100 if row.get("outlier_expense_ratio") else 0
     # 收支比 >1 (入不敷出) 加權：超過越多分越高
     ratio = row.get("expense_income_ratio")
     ratio_pts = 0
@@ -562,11 +561,12 @@ def build(df):
             axis=1,
         )
 
-    df["risk_total"] = (
-        WEIGHTS["financial"] * df["score_financial"]
-        + WEIGHTS["penalty"] * df["score_penalty"]
-        + WEIGHTS["eval"] * df["score_eval"]
-    ).round(1)
+    # 風險總分：走白盒 score()（單一計分來源），確保標頭、排名、地圖、雷達圖
+    # 全系統同源一致（避免「標頭總分 vs 雷達加總對不上」的可解釋性破口）。
+    # score() 依每列 scoring_profile 自動套用權重：forensic 四分項
+    # （財務0.40/裁罰0.30/評鑑0.15/輿情0.15）、behavioral 三分項（裁罰0.50/
+    # 評鑑0.30/輿情0.20，無財務）。輿情尚未接入 → 缺值以中性處理不放大（R10.5）。
+    df["risk_total"] = df.apply(lambda r: score(r).total, axis=1).round(1)
     # 主用百分位相對分級（確保有高風險園、符合「稽查優先序」目的）。
     # 【公平性】分機構類型各自做百分位（見 risk_level_by_group）：避免非營利園
     # 因缺班佛分項在全體混合百分位下被系統性壓低、整類被隱形。
