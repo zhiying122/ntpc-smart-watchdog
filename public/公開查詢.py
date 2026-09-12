@@ -1068,7 +1068,7 @@ with right:
             # ---- 清單分頁（上一頁／下一頁）----
             # 機構數可能達數百，改用分頁而非固定截斷 80 筆，確保「上方總數＝可翻閱
             # 到的全部機構」，數字一致、家長也能逐頁看完。
-            PAGE_SIZE = 20
+            PAGE_SIZE = 50
             _total = len(markers)
             _pages = max(1, (_total + PAGE_SIZE - 1) // PAGE_SIZE)
             # 頁碼存於 session；篩選變動使總頁數變少時，夾回合法範圍避免停在空頁。
