@@ -61,6 +61,23 @@ chain = inspector.evidence_chain(row)
 # ---------- 案件標頭（R5.1）----------
 common.case_header(row)
 
+# ---------- 真實裁罰紀錄疊加（唯讀，不影響風險分計算）----------
+# 來源：全國教保資訊網裁罰查詢。若本機構查有裁罰／處分紀錄，明確標示於標頭
+# 下方，供稽查員參考。此為獨立圖層，不覆寫既有 score_penalty / risk_total。
+_pen = common.penalty_for(park)
+if _pen is not None:
+    _pstatus = str(_pen.get("status", "") or "").strip()
+    _status_txt = f"　·　營運狀態：{_pstatus}" if _pstatus else ""
+    st.markdown(
+        f"<div class='sw-callout' style='border-left-color:{common.RISK['high'][0]};"
+        f"margin-top:8px;'>"
+        f"<b style='color:{common.RISK['high'][0]};'>⚠ 查有裁罰／處分紀錄</b>"
+        f"（資料來源：全國教保資訊網{_status_txt}）。"
+        f"此為官方公告之真實裁罰事實，作為稽查佐證；本頁風險分仍依既有鑑識會計"
+        f"方法計算，未因此疊加分數。</div>",
+        unsafe_allow_html=True,
+    )
+
 # ---------- 稽查決策條（行動優先）----------
 # 把「下決定」放在使用者一進頁面就看得到的位置：一句話結論 + 當前狀態 +
 # 三顆決策按鈕。決策即時寫入 case_status（跨頁共用、可持久化），並同步送出

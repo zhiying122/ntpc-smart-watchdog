@@ -50,13 +50,17 @@ if roster is not None:
     roster_only = roster[roster["data_status"] == "roster_only"].dropna(
         subset=["lat", "lng"]).copy()
 
+# 全市查有裁罰紀錄機構數（真實裁罰圖層）。
+_pen_df = common.load_penalty()
+_n_pen = 0 if _pen_df is None else int(_pen_df["park_name"].nunique())
+
 # 地圖統計 KPI
 _cov = common.roster_coverage()
 if _cov:
     common.kpi_band([
         ("全市納管機構", f"{_cov['total']:,}", False, f"涵蓋 {_cov['districts']} 區"),
         ("已評分並定位", f"{n_total}", False, "紅黃綠風險標示"),
-        ("目前顯示（已評分）", f"{len(geo)}", False, "符合篩選條件"),
+        ("查有裁罰紀錄", f"{_n_pen}", True, "全國教保資訊網·橘點標示"),
         ("高風險機構", f"{n_high_all}", True, "地圖紅點標示"),
     ])
 else:
@@ -82,6 +86,22 @@ fmap = folium.Map(location=center, zoom_start=11, tiles="OpenStreetMap",
 # 先畫灰點（底層），已評分的紅黃綠點稍後畫在上層，確保重點機構不被遮蓋。
 if show_roster and roster_only is not None and len(roster_only) > 0:
     for _, r in roster_only.iterrows():
+        # 真實裁罰紀錄疊加（唯讀，不影響計分）：有裁罰者以橘點強調。
+        pen = common.penalty_for(r["park_name"])
+        has_pen = pen is not None
+        pen_html = ""
+        dot_color, dot_fill = "#9AA3AD", "#B7BEC7"
+        if has_pen:
+            dot_color, dot_fill = "#C0722A", "#E8A868"
+            status = str(pen.get("status", "") or "").strip()
+            status_line = (f"<br>營運狀態：<b>{status}</b>" if status else "")
+            pen_html = (
+                f"<hr style='margin:6px 0;border-color:#E3E8EF;'>"
+                f"<div style='font-size:12px;color:#B0453A;font-weight:700;'>"
+                f"⚠ 查有裁罰／處分紀錄</div>"
+                f"<div style='font-size:11px;color:#6B7280;'>資料來源：全國教保資訊網"
+                f"{status_line}</div>"
+            )
         popup_html = (
             f"<div style=\"font-family:'Microsoft JhengHei',sans-serif;min-width:200px;\">"
             f"<div style='font-size:14px;font-weight:700;color:#1A1F29;'>{r['park_name']}</div>"
@@ -89,14 +109,16 @@ if show_roster and roster_only is not None and len(roster_only) > 0:
             f"{r.get('park_type','')}</div>"
             f"<hr style='margin:6px 0;border-color:#E3E8EF;'>"
             f"<div style='font-size:12px;color:#6B7280;'>基本資料已納管<br>"
-            f"財務資料待接入，尚未進行鑑識會計風險評分</div></div>"
+            f"財務資料待接入，尚未進行鑑識會計風險評分</div>"
+            f"{pen_html}</div>"
         )
         folium.CircleMarker(
-            location=[r["lat"], r["lng"]], radius=3.5,
-            color="#9AA3AD", fill=True, fill_color="#B7BEC7",
-            fill_opacity=0.55, weight=1,
+            location=[r["lat"], r["lng"]], radius=(5 if has_pen else 3.5),
+            color=dot_color, fill=True, fill_color=dot_fill,
+            fill_opacity=(0.8 if has_pen else 0.55), weight=1,
             popup=folium.Popup(popup_html, max_width=260),
-            tooltip=f"{r['park_name']}（基本資料已納管）",
+            tooltip=(f"{r['park_name']}（查有裁罰紀錄）" if has_pen
+                     else f"{r['park_name']}（基本資料已納管）"),
         ).add_to(fmap)
 
 for _, r in geo.iterrows():
@@ -167,14 +189,15 @@ st_folium(fmap, width=1120, height=560, returned_objects=[])
 
 # ---------- 圖例 ----------
 st.markdown(
-    "<div style='margin-top:10px;color:%s;font-size:.82rem;'>圖例：%s&nbsp;&nbsp;%s&nbsp;&nbsp;%s&nbsp;&nbsp;%s"
+    "<div style='margin-top:10px;color:%s;font-size:.82rem;'>圖例：%s&nbsp;&nbsp;%s&nbsp;&nbsp;%s&nbsp;&nbsp;%s&nbsp;&nbsp;%s"
     "&nbsp;&nbsp;·&nbsp;&nbsp;圈越大代表風險分越高；紅色虛線為高風險稽查建議路線。"
     "灰點為全市已納管、財務資料待接入之機構。</div>"
     % (common.MUTED,
        common.dot(common.LEVEL_COLOR["高"], "高風險"),
        common.dot(common.LEVEL_COLOR["中"], "中風險"),
        common.dot(common.LEVEL_COLOR["低"], "低風險"),
-       common.dot("#B7BEC7", "基本資料已納管")),
+       common.dot("#B7BEC7", "基本資料已納管"),
+       common.dot("#E8A868", "查有裁罰紀錄")),
     unsafe_allow_html=True,
 )
 

@@ -43,6 +43,18 @@ if _cov:
         unsafe_allow_html=True,
     )
 
+# ---------- 全市幼兒園逐年概況趨勢（教育部統計處開放資料）----------
+if common.load_moe_yearly() is not None:
+    common.section("全市幼兒園逐年概況趨勢", "clock")
+    st.markdown(
+        f"<div style='color:{common.MUTED};font-size:.84rem;margin:-4px 0 8px;'>"
+        f"資料來源：教育部統計處開放資料（全市總量統計）。園數穩定、幼生數逐年成長，"
+        f"反映監理量能需求。此宏觀趨勢與單園鑑識分析互補，並展現系統可持續接入"
+        f"官方開放資料。</div>",
+        unsafe_allow_html=True,
+    )
+    common.city_trend_chart()
+
 # ---------- 第一層：Risk Overview（企業級 KPI stat 帶）----------
 common.section("已評分機構風險概況", "dashboard")
 n_high = int((df["risk_level"] == "高").sum())

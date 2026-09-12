@@ -192,6 +192,106 @@ def load_roster():
     return pd.read_csv(ROSTER_CSV)
 
 
+PENALTY_CSV = os.path.join(ROOT, "data", "external", "ntpc_penalty.csv")
+
+
+@st.cache_data(show_spinner=False)
+def load_penalty():
+    """真實裁罰紀錄圖層（唯讀疊加，不影響任何計分）。
+
+    來源：全國教保資訊網裁罰查詢（scripts/fetch_ntpc_penalty.py 抓取）。
+    每列一間曾受裁罰之機構，含縣市/鄉鎮/設立別/電話/核定人數/營運狀態。
+    檔案不存在時回傳 None（頁面應優雅退化）。
+    """
+    if not os.path.exists(PENALTY_CSV):
+        return None
+    return pd.read_csv(PENALTY_CSV)
+
+
+def _norm_park_name(name):
+    """園名正規化（去括號附註與雜訊），供裁罰紀錄跨資料源比對。"""
+    import re as _re
+    s = "" if pd.isna(name) else str(name).strip()
+    s = _re.sub(r"[（(].*?[）)]", "", s)
+    for junk in ("新北市政府", "新北市", "私立", "市立", "立", "　", " "):
+        s = s.replace(junk, "")
+    return s.strip()
+
+
+@st.cache_data(show_spinner=False)
+def penalty_lookup():
+    """回傳 {正規化園名: 裁罰紀錄dict}，供各頁快速查詢某機構是否有裁罰。"""
+    pen = load_penalty()
+    if pen is None or len(pen) == 0:
+        return {}
+    lut = {}
+    for _, r in pen.iterrows():
+        lut[_norm_park_name(r.get("park_name"))] = r.to_dict()
+    return lut
+
+
+def penalty_for(park_name):
+    """查某機構的真實裁罰紀錄；無則回 None。"""
+    return penalty_lookup().get(_norm_park_name(park_name))
+
+
+MOE_YEARLY_CSV = os.path.join(ROOT, "data", "external", "moe_ntpc_yearly.csv")
+
+
+@st.cache_data(show_spinner=False)
+def load_moe_yearly():
+    """新北市幼兒園逐年概況（教育部統計處開放資料）；無檔時回 None。"""
+    if not os.path.exists(MOE_YEARLY_CSV):
+        return None
+    return pd.read_csv(MOE_YEARLY_CSV)
+
+
+def city_trend_chart():
+    """全市幼兒園逐年概況趨勢：園數 / 幼生數 / 教師數（雙軸）。
+
+    資料來源為教育部統計處官方開放資料（全市總量，非單園）。展現宏觀趨勢與
+    「系統可持續接入官方開放資料」的可規模化性，與單園鑑識分析互補。
+    """
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    d = load_moe_yearly()
+    if d is None or len(d) < 2:
+        empty_state("尚無全市概況統計", "執行 scripts/fetch_moe_stats.py 取得教育部統計處資料。")
+        return
+
+    years = [f"{int(y)}" for y in d["學年度"]]
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    # 幼生數（長條，右軸）：量體大，用長條表達規模。
+    if "幼生總數" in d.columns:
+        fig.add_trace(go.Bar(
+            x=years, y=d["幼生總數"], name="幼生總數",
+            marker=dict(color=PRIMARY_SOFT, line=dict(color=PRIMARY, width=1)),
+            hovertemplate="%{x} 學年｜幼生 <b>%{y:,}</b> 人<extra></extra>",
+        ), secondary_y=True)
+    # 園數（折線，左軸）
+    if "園數總數" in d.columns:
+        fig.add_trace(go.Scatter(
+            x=years, y=d["園數總數"], name="園數總數", mode="lines+markers",
+            line=dict(color=INK, width=2.5), marker=dict(size=7, color=INK),
+            hovertemplate="%{x} 學年｜園數 <b>%{y:,}</b> 間<extra></extra>",
+        ), secondary_y=False)
+    # 教師數（折線，左軸）
+    if "教師總數" in d.columns:
+        fig.add_trace(go.Scatter(
+            x=years, y=d["教師總數"], name="教師總數", mode="lines+markers",
+            line=dict(color=RISK_BAR["low"], width=2, dash="dot"),
+            marker=dict(size=6, color=RISK_BAR["low"]),
+            hovertemplate="%{x} 學年｜教師 <b>%{y:,}</b> 人<extra></extra>",
+        ), secondary_y=False)
+    fig.update_layout(barmode="group")
+    _plotly_layout(fig, height=320)
+    fig.update_yaxes(title="園數 / 教師數", secondary_y=False)
+    fig.update_yaxes(title="幼生數", secondary_y=True)
+    fig.update_xaxes(title="學年度")
+    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+
+
 def roster_coverage():
     """回傳全市涵蓋統計 dict（供總覽 KPI）；無 roster 檔時回 None。"""
     r = load_roster()
