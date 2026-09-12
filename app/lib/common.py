@@ -337,18 +337,20 @@ def _css():
     /* 導覽項目左右內距對齊 */
     [data-testid="stSidebar"] [data-testid="stPageLink"] {{ margin:0 var(--s2) !important; }}
     /* 分組標題（行政作業系統式檔案櫃分區）：小型全大寫石墨副標，
-       與 System Status footer 的區塊標題（.stt-h）同一語彙，維持側欄一致性。 */
+       與 System Status footer 的區塊標題（.stt-h）同一語彙，維持側欄一致性。
+       組間拉開（上距 22px）、標題與其下第一個項目留 8px，同組內項目維持緊湊，
+       建立「組內緊湊、組間分明」的清楚節奏。 */
     [data-testid="stSidebar"] .sw-navgrp {{
-      color:{SIDEBAR_INK_DIM}; font-size:.66rem; font-weight:600;
+      color:{SIDEBAR_INK_DIM}; font-size:.68rem; font-weight:700;
       letter-spacing:.12em; text-transform:uppercase;
-      margin:16px 14px 4px !important; padding:0; line-height:1.2; }}
-    /* 第一個分組標題緊貼品牌分隔線下方，間距略收（後續分組維持 16px 上距）。 */
-    [data-testid="stSidebar"] .sw-navgrp:first-of-type {{ margin-top:12px !important; }}
+      margin:22px 14px 8px !important; padding:0; line-height:1.2; }}
+    /* 第一個分組標題緊貼品牌分隔線下方，間距略收。 */
+    [data-testid="stSidebar"] .sw-navgrp:first-of-type {{ margin-top:14px !important; }}
     [data-testid="stSidebar"] [data-testid="stPageLink"] a,
     [data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"] {{
-      display:flex !important; align-items:center; gap:11px; height:40px; padding:0 12px !important;
+      display:flex !important; align-items:center; gap:11px; height:38px; padding:0 12px !important;
       border-radius:var(--radius-sm); color:{SIDEBAR_INK} !important; font-size:.885rem;
-      text-decoration:none; margin:0 0 3px 0 !important; border-left:2px solid transparent;
+      text-decoration:none; margin:0 !important; border-left:2px solid transparent;
       transition:background .16s ease, color .16s ease; background:transparent !important; }}
     [data-testid="stSidebar"] [data-testid="stPageLink"] a:hover,
     [data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"]:hover {{
@@ -988,6 +990,50 @@ def status_pill(status_key, label):
             f"{html.escape(str(label))}</span>")
 
 
+def status_banner(record):
+    """當前案件狀態大橫幅（決策條上方）：一眼看出目前狀態，狀態變更後顏色即變。
+
+    record：case_status.CaseRecord。已結案者以較飽和的語意色底強調，並附
+    「最後更新」時間與操作者，讓「案子到哪了」清楚可見。
+    """
+    risk_key = record.status_risk_key()
+    label = record.status_label()
+    fg, bg, bd = RISK.get(risk_key, RISK["medium"])
+    is_closed = record.status in {"closed_confirmed", "closed_dismissed"}
+    meta = ""
+    if record.updated_at:
+        who = f"　·　{html.escape(record.actor)}" if record.actor else ""
+        meta = (f"<div style='color:{INK_MUTED};font-size:.76rem;margin-top:2px;'>"
+                f"最後更新 {html.escape(record.updated_at)}{who}</div>")
+    tag = "已結案" if is_closed else "處理中"
+    tag_color = fg if is_closed else INK_MUTED
+    st.markdown(
+        f"""
+        <div style="display:flex;align-items:center;justify-content:space-between;
+             gap:16px;flex-wrap:wrap;background:{bg};border:1px solid {bd};
+             border-left:5px solid {fg};border-radius:{'8px'};padding:14px 20px;
+             margin:6px 0 10px;">
+          <div style="display:flex;align-items:center;gap:14px;">
+            <span style="width:12px;height:12px;border-radius:50%;background:{fg};
+                  flex:0 0 12px;"></span>
+            <div>
+              <div style="color:{INK_MUTED};font-size:.72rem;font-weight:600;
+                   letter-spacing:.08em;">目前案件狀態</div>
+              <div style="color:{fg};font-size:1.35rem;font-weight:700;line-height:1.2;
+                   margin-top:2px;">{html.escape(label)}</div>
+              {meta}
+            </div>
+          </div>
+          <div style="color:{tag_color};font-size:.8rem;font-weight:700;
+               border:1px solid {tag_color}55;border-radius:999px;padding:4px 14px;">
+            {tag}
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def decision_bar(row, record, decisions):
     """
     互動式稽查決策條（行動優先）：一句話結論 + 當前狀態徽章 + 決策按鈕列。
@@ -1189,6 +1235,139 @@ def active_alert_panel(df, max_rows=8):
         f"資料管線重新評估，即構成隨資料自動更新的即時預警系統。</div>",
         unsafe_allow_html=True,
     )
+
+
+# ===========================================================================
+# 工作台待處理面板（Worklist）— 把「報表型示警」改造成「行政工作台」
+# ---------------------------------------------------------------------------
+# 設計目標（對齊行政作業系統 / Case Management 語彙）：
+#   讓行政人員一進首頁想的是「我今天要處理哪幾件事」，而非「好多數據」。
+#   頂部呈現「今日待處理 N 件」+ 狀態分頁 chips（全部／待研判／建議派查／
+#   調查中）；下方為精簡可操作清單：狀態徽章｜機構｜風險分｜主要原因｜查看。
+#   「查看」以 st.page_link 帶 ?park= 跳到既有案件調查頁（1_case.py），
+#   不新增任何計算邏輯——純呈現＋既有頁面跳轉。
+# ===========================================================================
+def worklist_panel(df, max_rows=12):
+    """首頁工作台待處理清單（可依狀態 chips 過濾、逐案跳轉查看）。
+
+    狀態來源：case_status（跨頁共用之案件生命週期）。尚未有任何處置動作者
+    預設為「待研判（pending）」。清單依風險分由高至低排序（風險高者先處理）。
+    """
+    from lib import case_status  # 延遲載入，避免頂層循環相依
+
+    records = case_status.load_all()
+
+    def _status_of(eid):
+        eid = str(eid)
+        return records[eid].status if eid in records else "pending"
+
+    # 組工作清單（含狀態），依風險分高→低（先處理高風險）。
+    work = df.copy()
+    work["_status"] = work["park_id"].map(_status_of)
+    work = work.sort_values("risk_total", ascending=False).reset_index(drop=True)
+
+    # 未結案者才進「待處理」（結案的移出收件匣，但仍可於案件管理查閱）。
+    pending_mask = ~work["_status"].isin(list(case_status.CLOSED_STATUSES))
+    todo = work[pending_mask]
+
+    n_todo = len(todo)
+    n_pending = int((todo["_status"] == "pending").sum())
+    n_dispatch = int((todo["_status"] == "dispatch").sum())
+    n_investigating = int((todo["_status"] == "investigating").sum())
+
+    # 頂部：今日待處理標題 + 狀態統計。
+    st.markdown(
+        f"<div style='display:flex;align-items:baseline;gap:12px;margin:2px 0 12px;'>"
+        f"<span style='font-size:1.15rem;font-weight:700;color:{INK};'>今日待處理</span>"
+        f"<span style='color:{INK_2};font-size:.9rem;'>共 <b style='color:{RISK_BAR['high']};"
+        f"font-size:1.05rem;'>{n_todo}</b> 件需要處理</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    # 狀態分頁 chips（用 pills：既有樣式，選一個過濾清單）。
+    chip_opts = [
+        f"全部（{n_todo}）",
+        f"待研判（{n_pending}）",
+        f"建議派查（{n_dispatch}）",
+        f"調查中（{n_investigating}）",
+    ]
+    chip_to_status = {
+        chip_opts[0]: None, chip_opts[1]: "pending",
+        chip_opts[2]: "dispatch", chip_opts[3]: "investigating",
+    }
+    sel = st.pills("狀態篩選", chip_opts, selection_mode="single",
+                   default=chip_opts[0], label_visibility="collapsed",
+                   key="worklist_chip")
+    sel_status = chip_to_status.get(sel or chip_opts[0])
+
+    view = todo if sel_status is None else todo[todo["_status"] == sel_status]
+
+    if len(view) == 0:
+        empty_state("目前此狀態沒有待處理案件",
+                    "切換上方狀態分頁查看其他案件，或前往案件調查頁處理。", "check")
+        return
+
+    # 可操作清單：狀態｜機構｜風險｜主要原因｜查看（跳轉案件調查頁）。
+    # 用 st.columns 逐列渲染，才能在每列放置可點的 page_link。
+    hdr = st.columns([0.9, 2.4, 0.9, 3.0, 0.9])
+    for c, t in zip(hdr, ["狀態", "機構名稱", "風險分", "主要風險原因", ""]):
+        c.markdown(f"<div style='color:{INK_MUTED};font-size:.72rem;font-weight:600;"
+                   f"letter-spacing:.04em;padding-bottom:4px;"
+                   f"border-bottom:1px solid {BORDER_STRONG};'>{t}</div>",
+                   unsafe_allow_html=True)
+
+    for _, r in view.head(max_rows).iterrows():
+        eid = str(r["park_id"])
+        status_key = _status_of(eid)
+        label, risk_key = case_status.STATUS_META.get(status_key, ("待研判", "medium"))
+        fg, bg, bd = RISK.get(risk_key, RISK["medium"])
+        reasons = []
+        try:
+            reasons = _load_alert_module().reasons_for_row(r)
+        except Exception:  # noqa: BLE001
+            pass
+        reason_txt = "；".join(reasons[:2]) if reasons else "綜合風險相對偏高"
+        lvl = r["risk_level"]
+
+        cols = st.columns([0.9, 2.4, 0.9, 3.0, 0.9])
+        cols[0].markdown(
+            f"<div style='padding-top:8px;'><span class='sw-badge' "
+            f"style='background:{bg};color:{fg};border-color:{bd};'>{label}</span></div>",
+            unsafe_allow_html=True)
+        cols[1].markdown(
+            f"<div style='padding-top:8px;color:{INK};font-size:.88rem;'>"
+            f"{html.escape(str(r['park_name']))}</div>"
+            f"<div style='color:{INK_MUTED};font-size:.74rem;'>"
+            f"{html.escape(str(r.get('district') or '—'))}</div>",
+            unsafe_allow_html=True)
+        cols[2].markdown(
+            f"<div style='padding-top:8px;font-weight:700;color:{level_color(lvl)};"
+            f"font-variant-numeric:tabular-nums;'>{r['risk_total']:.1f}</div>",
+            unsafe_allow_html=True)
+        cols[3].markdown(
+            f"<div style='padding-top:8px;color:{INK_2};font-size:.82rem;line-height:1.5;'>"
+            f"{html.escape(reason_txt)}</div>",
+            unsafe_allow_html=True)
+        with cols[4]:
+            st.markdown("<div style='padding-top:4px;'></div>", unsafe_allow_html=True)
+            try:
+                st.page_link("pages/1_case.py", label="查看 →",
+                             query_params={"park": str(r["park_name"])})
+            except TypeError:
+                # 舊版 Streamlit page_link 無 query_params 參數時的退化：
+                # 仍提供連結但不帶參數（使用者可在案件頁自行選案件）。
+                try:
+                    st.page_link("pages/1_case.py", label="查看 →")
+                except Exception:  # noqa: BLE001
+                    pass
+            except Exception:  # noqa: BLE001
+                pass
+        st.markdown(
+            f"<div style='height:1px;background:{LINE_SOFT};margin:2px 0;'></div>",
+            unsafe_allow_html=True)
+
+    if len(view) > max_rows:
+        st.caption(f"顯示前 {max_rows} 件（風險高者優先）。完整清單見下方「機構風險排名」。")
 
 
 # ===========================================================================

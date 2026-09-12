@@ -32,9 +32,9 @@ common.kpi_band([
     ("平均風險分", f"{df['risk_total'].mean():.1f}", False, "全體平均"),
 ])
 
-# ---------- 主動示警（事前主動預警）----------
-common.section("主動示警｜建議優先派查", "alert")
-common.active_alert_panel(df)
+# ---------- 今日待處理（工作台：行動優先，一進來先看要處理哪幾件）----------
+common.section("今日待處理", "alert")
+common.worklist_panel(df)
 
 # ---------- 第二層：風險分布 + 優先案件 ----------
 col_dist, col_prio = st.columns([1, 1.35], gap="large")
