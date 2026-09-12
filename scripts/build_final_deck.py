@@ -472,10 +472,72 @@ def s_whitebox():
 
 
 # ============================================================ 07 資料全景 + 靜態/動態
+def s_data_sources():
+    """資料來源清冊：每一筆從哪個機關來、怎麼取得、量多少。"""
+    s = slide()
+    header(s, "DATA ｜ 數據及資料運用 (1/3)", "資料來源清冊：官方一手 × 自行蒐集，全部可追溯",
+           7, chapter="第三章　資料")
+    x0 = int(0.7 * IN)
+    tw = int(11.95 * IN)
+    # 表頭
+    cols = [("資料類別", 2.75), ("來源機關 / 網站", 4.05), ("取得方式", 2.85), ("量", 2.3)]
+    ty = int(1.55 * IN)
+    hh = int(0.42 * IN)
+    rect(s, x0, ty, tw, hh, PRIMARY_DK)
+    cx = x0
+    for label, wf in cols:
+        txt(s, cx + int(0.15 * IN), ty, int(wf * IN) - int(0.2 * IN), hh,
+            [(label, 12, True, WHITE)], anchor=MSO_ANCHOR.MIDDLE)
+        cx += int(wf * IN)
+    # 資料列：(類別, 來源, 取得方式, 量, 取得方式色)
+    GET_OFFICIAL = PRIMARY   # 官方提供/開放資料
+    GET_SELF = RISK_ORANGE   # 自行蒐集/爬取
+    rows = [
+        ("公校決算書", "新北市政府主計處", "主辦方提供 + 公開", "110–113 年度", GET_OFFICIAL),
+        ("非營利園財報", "新北市政府教育局", "主辦方提供", "132 份", GET_OFFICIAL),
+        ("全國機構名冊", "全國教保資訊網（教育部）", "自行蒐集", "1,111 筆", GET_SELF),
+        ("裁罰紀錄", "全國教保資訊網 裁罰查詢\nap.ece.moe.edu.tw/webecems/punishSearch", "自行爬取", "2,838 筆", GET_SELF),
+        ("基本 / 收費 / 座標", "全國教保資訊網（經 g0v 整理）", "動態 API（免金鑰）", "全市", GET_OFFICIAL),
+        ("全市逐年統計", "教育部統計處 開放資料", "data.gov.tw", "104–110 學年", GET_OFFICIAL),
+        ("政府開放資料檢索", "政府資料開放平臺 data.gov.tw", "自行檢索", "多資料集", GET_SELF),
+        ("新聞輿情", "Google/Bing News + 自由/東森/中央社/聯合報 RSS", "自行爬取", "即時", GET_SELF),
+        ("社群輿情", "PTT（BabyMother / BabyProducts 看板）", "自行爬取", "即時", GET_SELF),
+        ("司法事實", "司法院裁判書 / 行政處分", "連接器（區分確定/程序）", "事實層", GET_SELF),
+    ]
+    ry = ty + hh
+    rh = int(0.44 * IN)
+    for i, (cat, src, method, amount, mcolor) in enumerate(rows):
+        rect(s, x0, ry, tw, rh, WHITE if i % 2 == 0 else SURFACE)
+        cx = x0
+        # 類別
+        txt(s, cx + int(0.15 * IN), ry, int(2.75 * IN) - int(0.2 * IN), rh,
+            [(cat, 10.5, True, INK)], anchor=MSO_ANCHOR.MIDDLE)
+        cx += int(2.75 * IN)
+        # 來源
+        txt(s, cx + int(0.15 * IN), ry, int(4.05 * IN) - int(0.2 * IN), rh,
+            [(src, 9.5, False, INK_MUTED)], anchor=MSO_ANCHOR.MIDDLE,
+            line_spacing=0.95)
+        cx += int(4.05 * IN)
+        # 取得方式 chip
+        chip(s, cx + int(0.12 * IN), ry + int(0.07 * IN), int(2.85 * IN) - int(0.3 * IN),
+             int(0.3 * IN), method, mcolor, size=9)
+        cx += int(2.85 * IN)
+        # 量
+        txt(s, cx + int(0.15 * IN), ry, int(2.3 * IN) - int(0.2 * IN), rh,
+            [(amount, 10, True, INK)], anchor=MSO_ANCHOR.MIDDLE)
+        ry += rh
+    rect(s, x0, ty, tw, ry - ty, None, line=BORDER, line_w=1)
+    # 圖例
+    txt(s, x0, ry + int(0.08 * IN), tw, int(0.3 * IN),
+        [[("　", 10, True, PRIMARY),
+          ("■ 官方提供 / 開放資料　　", 10, True, PRIMARY),
+          ("■ 自行蒐集 / 爬取（合規公開來源）", 10, True, RISK_ORANGE)]])
+
+
 def s_data_overview():
     s = slide()
-    header(s, "DATA ｜ 數據及資料運用 (1/2)", "靜態一手精抽 × 動態官方 API：雙軌互補",
-           7, chapter="第三章　資料")
+    header(s, "DATA ｜ 數據及資料運用 (2/3)", "靜態一手精抽 × 動態官方 API：雙軌互補",
+           8, chapter="第三章　資料")
     txt(s, int(0.85 * IN), int(1.42 * IN), int(11.6 * IN), int(0.4 * IN),
         [[("回應痛點 1：", 12, True, PRIMARY),
           ("把系統從「靜態一次性資料」升級為「動態串接官方開放資料 + 快取 + 離線備援」的整合平台。",
@@ -494,9 +556,9 @@ def s_data_overview():
         int(0.55 * IN), [[("靜態資料 ", 17, True, WHITE), ("STATIC", 12, True, GOLD)]],
         anchor=MSO_ANCHOR.MIDDLE)
     static_items = [
-        ("公校決算書 PDF", "PyMuPDF 文字層抽取，含逐筆明細供班佛檢定"),
-        ("非營利園掃描財報", "Tesseract OCR + Bedrock 多模態，自我勾稽把關"),
-        ("地理座標（衍生）", "Nominatim geocoding 產生 lat/lng"),
+        ("公校決算書 PDF", "來源：新北市政府主計處｜PyMuPDF 文字層抽取，含逐筆明細供班佛檢定"),
+        ("非營利園掃描財報", "來源：新北市教育局｜Tesseract OCR + Bedrock 多模態抽取"),
+        ("地理座標（衍生）", "OpenStreetMap Nominatim geocoding 產生 lat/lng"),
     ]
     yy = y0 + int(0.95 * IN)
     for t, d in static_items:
@@ -511,8 +573,8 @@ def s_data_overview():
         int(0.55 * IN), [[("動態資料 ", 17, True, WHITE), ("LIVE API", 12, True, GOLD)]],
         anchor=MSO_ANCHOR.MIDDLE)
     dyn_items = [
-        ("幼兒園基本資料 / 收費", "preschools.json（GeoJSON 含座標），HTTPS GET 免金鑰"),
-        ("全國裁罰紀錄", "punish_all.json，含日期/法條/罰鍰，即時解析"),
+        ("幼兒園基本資料 / 收費", "來源：全國教保資訊網（教育部）｜preschools.json GeoJSON 含座標，免金鑰"),
+        ("全國裁罰紀錄", "來源：全國教保資訊網裁罰查詢｜含日期/法條/罰鍰，即時解析"),
         ("連接器 live_source.py", "load_live_dataset() 一鍵同步，UI 按鈕觸發"),
     ]
     yy = y0 + int(0.95 * IN)
@@ -531,8 +593,8 @@ def s_data_overview():
 # ============================================================ 08 三層備援 + 治理
 def s_data_resilience():
     s = slide()
-    header(s, "DATA ｜ 數據及資料運用 (2/2)", "政府級韌性 + 誠實治理：外部源掛了也不倒",
-           8, chapter="第三章　資料")
+    header(s, "DATA ｜ 數據及資料運用 (3/3)", "政府級韌性 + 誠實治理：外部源掛了也不倒",
+           9, chapter="第三章　資料")
     # 三層備援
     x0 = int(0.85 * IN)
     txt(s, x0, int(1.45 * IN), int(11.6 * IN), int(0.35 * IN),
@@ -591,11 +653,73 @@ def s_data_resilience():
             int(0.6 * IN), [(d, 10, False, INK_MUTED)], line_spacing=1.12)
 
 
-# ============================================================ 09 AWS 架構圖
+# ============================================================ 10 輿情多來源分層
+def s_sentiment_sources():
+    """輿情多來源分層：爬了哪些網站、合規邊界、事實vs輿情分離。"""
+    s = slide()
+    header(s, "DATA ｜ 輿情多來源分層", "爬了哪些網站：新聞 × 社群 × 司法，事實與輿情分離",
+           10, chapter="第三章　資料")
+    txt(s, int(0.85 * IN), int(1.42 * IN), int(11.6 * IN), int(0.4 * IN),
+        [[("原則：", 12, True, PRIMARY),
+          ("只抓公開、免登入來源（合規）；官方/判決確定＝事實層，新聞/社群＝輿情層，嚴格分離、不以輿情定罪。",
+           12, False, INK_MUTED)]], line_spacing=1.1)
+
+    x0 = int(0.85 * IN)
+    gap = int(0.3 * IN)
+    cw = (int(11.6 * IN) - 2 * gap) // 3
+    y0 = int(2.1 * IN)
+    ch = int(3.5 * IN)
+    cols = [
+        ("新聞層", "EVENT 事件", RISK_ORANGE,
+         ["Google News RSS", "Bing News RSS", "自由時報 / 東森新聞雲",
+          "中央社 / 聯合報", "鏡週刊 / Newtalk"],
+         "公開 RSS，免金鑰、免登入"),
+        ("社群層", "SENTIMENT 輿情", RISK_GREEN,
+         ["PTT BabyMother 板", "PTT BabyProducts 板", "（以上公開看板已接入）",
+          "Dcard / FB / IG", "Google 評論"],
+         "PTT 公開看板已爬；Dcard/FB/IG 受登入牆限制，adapter 備援"),
+        ("事實層", "FACT 事實", PRIMARY,
+         ["司法院裁判書", "各級行政處分", "─────────", "判決確定 → 事實",
+          "偵查/起訴中 → 過程(非有罪)"],
+         "官方公開查詢；階段嚴格區分，不以起訴中定罪"),
+    ]
+    for i, (title, tag, color, items, note) in enumerate(cols):
+        x = x0 + i * (cw + gap)
+        card(s, x, y0, cw, ch, fill=WHITE)
+        rect(s, x, y0, cw, int(0.72 * IN), color, rounded=True)
+        rect(s, x, y0 + int(0.47 * IN), cw, int(0.25 * IN), color)
+        txt(s, x + int(0.25 * IN), y0 + int(0.06 * IN), cw - int(0.5 * IN),
+            int(0.62 * IN), [[(title + "　", 17, True, WHITE),
+                              (tag, 11, True, GOLD)]],
+            anchor=MSO_ANCHOR.MIDDLE)
+        yy = y0 + int(0.95 * IN)
+        for it in items:
+            is_sep = it.startswith("─")
+            is_dim = it.startswith("（")
+            rect(s, x + int(0.28 * IN), yy + int(0.08 * IN), int(0.1 * IN),
+                 int(0.1 * IN), color if not (is_sep or is_dim) else SURFACE2)
+            txt(s, x + int(0.48 * IN), yy, cw - int(0.7 * IN), int(0.4 * IN),
+                [(it, 11, False, INK_MUTED if (is_sep or is_dim) else INK)],
+                line_spacing=1.0)
+            yy += int(0.42 * IN)
+        # 合規標籤
+        rect(s, x + int(0.24 * IN), y0 + ch - int(0.78 * IN), cw - int(0.48 * IN),
+             Emu(12700), BORDER)
+        txt(s, x + int(0.28 * IN), y0 + ch - int(0.68 * IN), cw - int(0.56 * IN),
+            int(0.6 * IN), [[("合規：", 9.5, True, color),
+                             (note, 9.5, False, INK_MUTED)]], line_spacing=1.05)
+
+    txt(s, x0, int(5.75 * IN), int(11.6 * IN), int(0.55 * IN),
+        [[("計分方式：", 12, True, PRIMARY),
+          ("新聞 + PTT 兩條真實來源 → 白盒 NLP 判負面度 → neg_ratio → 輿情分項（權重 10%、貢獻上限 15 分）；查無訊號者中性不放大（責任 AI）。",
+           11.5, False, INK_MUTED)]], line_spacing=1.15)
+
+
+# ============================================================ 11 AWS 架構圖
 def s_aws():
     s = slide()
     header(s, "ARCHITECTURE ｜ AWS 雲端技術架構", "資料 → 鑑識引擎 → 雙介面，AWS 全託管",
-           9, chapter="第四章　架構")
+           11, chapter="第四章　架構")
     x0 = int(0.7 * IN)
     full_w = int(11.9 * IN)
     top = int(1.5 * IN)
@@ -680,7 +804,7 @@ def s_aws():
 def s_ui_gov():
     s = slide()
     header(s, "UI / FLOW ｜ 介面與操作流程 (1/2)", "公務後台 :8601 — 稽查官的作戰工作台",
-           10, chapter="第五章　操作")
+           12, chapter="第五章　操作")
     txt(s, int(0.85 * IN), int(1.42 * IN), int(11.6 * IN), int(0.4 * IN),
         [[("使用者：", 12, True, PRIMARY), ("教育局 / 稽查員　｜　", 12, False, INK_MUTED),
           ("動線：全局監控 → 下鑽單園 → 下決定 → 派工結案", 12, True, INK)]])
@@ -728,7 +852,7 @@ def s_ui_gov():
 def s_ui_public():
     s = slide()
     header(s, "UI / FLOW ｜ 介面與操作流程 (2/2)", "公眾查詢網 :8602 — 家長「安心找幼兒園」",
-           11, chapter="第五章　操作")
+           13, chapter="第五章　操作")
     txt(s, int(0.85 * IN), int(1.42 * IN), int(11.6 * IN), int(0.55 * IN),
         [[("使用者：", 12, True, RISK_GREEN), ("一般民眾 / 家長（無需登入）　｜　", 12, False, INK_MUTED),
           ("與後台同一中台但資料層移除所有風險分數，家長端根本拿不到 risk_total", 12, True, INK)]],
@@ -815,8 +939,10 @@ def main():
     s_solution()
     s_forensic()
     s_whitebox()
-    s_data_overview()
-    s_data_resilience()
+    s_data_sources()      # 新增：資料來源清冊（P7）
+    s_data_overview()     # 靜態/動態（P8）
+    s_data_resilience()   # 韌性+治理（P9）
+    s_sentiment_sources() # 新增：輿情多來源分層（P10）
     s_aws()
     s_ui_gov()
     s_ui_public()
