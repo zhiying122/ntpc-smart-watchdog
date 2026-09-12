@@ -162,6 +162,10 @@ class RiskBreakdown:
     weights: dict[str, float] = field(default_factory=dict)        # 顯示用權重
     not_illegality_notice: str = "風險不等於違法（Risk does not equal illegality）。"
     data_confidence: float = 100.0                     # 對應資料可信度（R18.3）
+    # 雙評分檔（R26）：'forensic'（財務鑑識園）或 'behavioral'（行為監測園，無獨立財報）。
+    scoring_profile: str = "forensic"
+    # 行為監測園的揭露訊息「無獨立財報，僅基於合規/評鑑/輿情」（R26.6）；forensic 為 None。
+    profile_notice: str | None = None
 
 
 # --------------------------------------------------------------------------

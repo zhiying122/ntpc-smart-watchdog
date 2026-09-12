@@ -198,3 +198,133 @@ def test_data_confidence_carried_on_breakdown():
     """每個 RiskBreakdown 帶 data_confidence（R18.3）；未提供 → 100。"""
     assert score(_entity()).data_confidence == 100.0
     assert score(_entity(), confidence=73.0).data_confidence == 73.0
+
+
+# ==========================================================================
+# 雙評分檔（R26：財務鑑識園 vs 行為監測園）
+# ==========================================================================
+from hypothesis import given, settings  # noqa: E402
+from hypothesis import strategies as st  # noqa: E402
+
+from src.risk_score import (  # noqa: E402
+    PROFILE_BEHAVIORAL,
+    PROFILE_FORENSIC,
+    PROFILE_WEIGHTS,
+    resolve_scoring_profile,
+)
+
+
+def test_resolve_profile_forensic_when_financials_present():
+    """具獨立財務決算 → forensic（R26.1）。"""
+    assert resolve_scoring_profile({"income_actual": 1000, "expense_actual": 900}) == PROFILE_FORENSIC
+    assert resolve_scoring_profile({"score_financial": 44.8}) == PROFILE_FORENSIC
+
+
+def test_resolve_profile_behavioral_when_no_financials():
+    """無獨立財報（如國小附幼）→ behavioral（R26.1）。"""
+    assert resolve_scoring_profile({"penalty_count": 2, "eval_grade": "乙"}) == PROFILE_BEHAVIORAL
+    assert resolve_scoring_profile({}) == PROFILE_BEHAVIORAL
+
+
+def test_explicit_profile_override_respected():
+    """entity 顯式 scoring_profile 覆寫自動判定（R26.1）。"""
+    assert resolve_scoring_profile({"income_actual": 1000, "scoring_profile": "behavioral"}) == PROFILE_BEHAVIORAL
+
+
+def test_behavioral_excludes_financial_subscore():
+    """behavioral 檔財務分項不計入貢獻（R26.3）。"""
+    rb = score({"score_penalty": 60.0, "score_eval": 40.0}, profile=PROFILE_BEHAVIORAL)
+    assert rb.scoring_profile == PROFILE_BEHAVIORAL
+    assert "financial" not in rb.contributions
+    assert rb.profile_notice  # 揭露訊息非空（R26.6）
+
+
+def test_behavioral_all_missing_flags_insufficient():
+    """behavioral 三分項皆無真實資料 → 資料不足揭露（R26.8）。"""
+    rb = score({}, profile=PROFILE_BEHAVIORAL)
+    assert "不足" in rb.profile_notice
+
+
+def test_forensic_profile_weights_sum_to_one():
+    """forensic 四分項權重合計 1.0（R26.2）。"""
+    w = PROFILE_WEIGHTS[PROFILE_FORENSIC]
+    assert round(sum(v for v in w.values() if v is not None), 4) == 1.0
+
+
+def test_behavioral_profile_weights_sum_to_one():
+    """behavioral 三分項權重合計 1.0（R26.3）。"""
+    w = {k: v for k, v in PROFILE_WEIGHTS[PROFILE_BEHAVIORAL].items() if v is not None}
+    assert round(sum(w.values()), 4) == 1.0
+    assert PROFILE_WEIGHTS[PROFILE_BEHAVIORAL]["financial"] is None
+
+
+# Feature: smart-watchdog-platform, Property 49: 雙評分檔權重、範圍與確定性
+@settings(max_examples=100)
+@given(
+    fin=st.floats(min_value=0, max_value=100),
+    pen=st.floats(min_value=0, max_value=100),
+    ev=st.floats(min_value=0, max_value=100),
+    sen=st.floats(min_value=0, max_value=100),
+    prof=st.sampled_from([PROFILE_FORENSIC, PROFILE_BEHAVIORAL]),
+)
+def test_property_49_dual_profile_weights_range_determinism(fin, pen, ev, sen, prof):
+    """Property 49：評分檔為 forensic/behavioral 二者之一且確定性；
+    權重合計 1.0；總分 0–100；輿情貢獻 ≤ 15。"""
+    entity = {
+        "score_financial": fin, "score_penalty": pen,
+        "score_eval": ev, "score_sentiment": sen,
+    }
+    rb1 = score(entity, profile=prof)
+    rb2 = score(entity, profile=prof)
+
+    # 評分檔二選一且確定性
+    assert rb1.scoring_profile in (PROFILE_FORENSIC, PROFILE_BEHAVIORAL)
+    assert rb1.scoring_profile == rb2.scoring_profile == prof
+    assert rb1.total == rb2.total
+
+    # 權重合計 1.0
+    assert round(sum(rb1.weights.values()), 4) == 1.0
+
+    # behavioral 檔不含財務分項
+    if prof == PROFILE_BEHAVIORAL:
+        assert "financial" not in rb1.contributions
+
+    # 總分 0–100
+    assert 0.0 <= rb1.total <= 100.0
+
+    # 輿情分項貢獻 ≤ 15（R10.8, R26.7）
+    assert rb1.contributions.get("sentiment", 0.0) <= 15.0 + 1e-9
+
+
+# ==========================================================================
+# 破窗效應接入裁罰分項（R25.7）
+# ==========================================================================
+import json as _json  # noqa: E402
+
+from src.risk_score import broken_window_penalty_score, score_penalty  # noqa: E402
+
+
+def test_penalty_falls_back_when_no_records():
+    """無逐筆明細 → score_penalty 退回既有嚴重度計分（向後相容，R25.7）。"""
+    row = {"penalty_count": 2, "penalty_reason": "超收幼生與收費違規"}
+    # 未帶 penalty_records → 走 penalty_severity_score
+    assert score_penalty(row) == score_penalty(
+        {"penalty_count": 2, "penalty_reason": "超收幼生與收費違規", "penalty_records": ""})
+
+
+def test_penalty_uses_broken_window_when_records_present():
+    """有逐筆明細（含日期）→ score_penalty 走破窗效應（R25.7）。"""
+    recs = _json.dumps([
+        {"date": "2024-02-15", "reason": "資料未依規公開"},
+        {"date": "2026-05-08", "reason": "照顧安全疑慮與設施缺失"},
+    ], ensure_ascii=False)
+    row = {"penalty_count": 2, "penalty_reason": "多筆", "penalty_records": recs}
+    bw = broken_window_penalty_score(recs)
+    assert bw is not None
+    assert score_penalty(row) == bw
+
+
+def test_broken_window_penalty_none_when_empty():
+    """無明細 → broken_window_penalty_score 回 None（讓呼叫端退回）。"""
+    assert broken_window_penalty_score("") is None
+    assert broken_window_penalty_score(None) is None

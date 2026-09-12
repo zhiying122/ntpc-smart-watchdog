@@ -64,6 +64,25 @@ common.case_header(row)
 
 # ---------- 風險評估雷達 / 分項加權貢獻（R5.1, R5.2）----------
 common.section("風險評估", "shield")
+
+# 評分檔別（R26）：財務鑑識園（有決算）/ 行為監測園（無獨立財報，如國小附設幼兒園）。
+# 行為監測園併同顯示揭露訊息，讓稽查員得知該分數所依據之資料面向（R26.5, R26.6）。
+_profile_label = ("財務鑑識園（具獨立財務決算）"
+                  if radar.scoring_profile == "forensic"
+                  else "行為監測園（無獨立財報）")
+_profile_color = common.PRIMARY if radar.scoring_profile == "forensic" else common.RISK["medium"][0]
+st.markdown(
+    f"<div style='display:inline-block;padding:3px 12px;border-radius:999px;"
+    f"border:1px solid {_profile_color};color:{_profile_color};font-size:.78rem;"
+    f"font-weight:600;margin-bottom:8px;'>評分檔：{_profile_label}</div>",
+    unsafe_allow_html=True,
+)
+if radar.profile_notice:
+    st.markdown(
+        f"<div class='sw-callout' style='margin-bottom:12px;'>{radar.profile_notice}</div>",
+        unsafe_allow_html=True,
+    )
+
 col_radar, col_action = st.columns([1.3, 1], gap="large")
 
 with col_radar:
@@ -179,6 +198,32 @@ with tab_cat:
                 f"{src_line}</div>",
                 unsafe_allow_html=True,
             )
+            # 破窗效應累犯軌跡（R25.6, R25.7）：法規類別下，若有逐筆裁罰明細
+            # （含日期）則攤開「頻繁/近期/未改善」累積軌跡，凸顯破窗惡化趨勢。
+            if cat.category == "法規":
+                bw = inspector.broken_window_trace(row)
+                if bw.has_detail:
+                    rows_html = ""
+                    for r in bw.rows:
+                        sev_color = (common.RISK["high"][0] if r.severity == "major"
+                                     else common.RISK["medium"][0] if r.severity == "moderate"
+                                     else common.INK_2)
+                        rows_html += (
+                            f"<tr><td class='l'>{r.description}</td>"
+                            f"<td style='color:{sev_color};'>{r.severity_label}</td>"
+                            f"<td>{r.months_since:.0f} 月前</td>"
+                            f"<td>{r.time_decay:.2f}</td>"
+                            f"<td>{r.contribution:.2f}</td></tr>")
+                    st.markdown(
+                        f"<div class='sw-callout' style='margin-bottom:10px;'>"
+                        f"破窗效應累犯加權：<b>{bw.score:.1f}</b> 分"
+                        f"（{bw.n_counted} 筆違規，頻率放大 ×{bw.frequency_amplifier:.2f}）。"
+                        f"近期、頻繁、未改善的違規累積被指數式突顯，時效衰減使久遠違規權重降低。</div>"
+                        f"<table class='sw-table'><thead><tr><th class='l'>違規事由</th>"
+                        f"<th>嚴重度</th><th>距今</th><th>時效衰減</th><th>加權貢獻</th></tr></thead>"
+                        f"<tbody>{rows_html}</tbody></table>",
+                        unsafe_allow_html=True,
+                    )
         else:
             common.empty_state(f"{cat.category}：無資料",
                                "此分析類別目前無可用資料。", "clock")
