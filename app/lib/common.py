@@ -1722,3 +1722,78 @@ def risk_trend_chart(full_df, park_name):
     fig.update_yaxes(title="分項貢獻", secondary_y=False)
     fig.update_yaxes(title="總風險分", secondary_y=True, range=[0, 100])
     st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+
+
+def validation_panel(df):
+    """模型鑑別力驗證面板（回應評審「模型準不準／權重為何」）。
+
+    以官方裁罰紀錄為高風險標籤，實證比較「系統判定高風險分組 vs 對照組」的
+    裁罰率與平均裁罰次數，並呈現風險分數與裁罰的關聯係數。這張圖直接回答：
+      - 分數準不準？（高分組裁罰率是否顯著高於對照組）
+      - 裁罰權重為何合理？（權重反映裁罰與高風險的實際關聯強度，非主觀設定）
+
+    誠實揭露：抽樣示範、裁罰為弱標籤、風險不等於違法（皆由 validation 模組附帶）。
+    """
+    import plotly.graph_objects as go
+
+    try:
+        from src.validation import validate_against_penalties
+    except Exception:
+        empty_state("驗證模組不可用", "無法載入 src/validation.py。")
+        return
+
+    result = validate_against_penalties(df)
+
+    if result.n_penalized == 0:
+        empty_state(
+            "尚無官方裁罰標籤可供驗證",
+            "目前抽樣中無任何園具官方裁罰紀錄；接入全國教保資訊網官方全量裁罰"
+            "資料後，此處將自動產出「高分園是否較常被裁罰」的驗證結果。",
+            icon_name="check",
+        )
+        return
+
+    # ---- 指標帶：lift / 相關係數 / 兩組裁罰率 ----
+    lift_txt = f"{result.lift}×" if result.lift is not None else "對照組無裁罰"
+    r_txt = f"{result.point_biserial_r}" if result.point_biserial_r is not None else "—"
+    kpi_band([
+        ("高分組裁罰率", f"{result.high.penalty_rate_pct}%", True,
+         f"高風險分組 {result.high.n} 間"),
+        ("對照組裁罰率", f"{result.control.penalty_rate_pct}%", False,
+         f"中／低風險 {result.control.n} 間"),
+        ("裁罰率提升倍數", lift_txt, False, "高分組 ÷ 對照組"),
+        ("分數—裁罰關聯 r", r_txt, False, "點二系列相關（越接近 1 越一致）"),
+    ])
+
+    # ---- 對比長條：兩組裁罰率 ----
+    groups = [result.high.label, result.control.label]
+    rates = [result.high.penalty_rate_pct, result.control.penalty_rate_pct]
+    colors = [RISK_BAR["high"], RISK_BAR["low"]]
+    fig = go.Figure(go.Bar(
+        x=groups, y=rates, marker=dict(color=colors),
+        text=[f"{v}%" for v in rates], textposition="outside",
+        textfont=dict(size=13, color=INK),
+        hovertemplate="%{x}<br>官方裁罰率 <b>%{y}%</b><extra></extra>",
+    ))
+    fig.update_layout(showlegend=False)
+    _plotly_layout(fig, height=280,
+                   title="系統判定高風險分組 vs 對照組：官方裁罰率對比")
+    fig.update_yaxes(title="曾被官方裁罰的園占比 (%)",
+                     range=[0, max(rates) * 1.3 if max(rates) else 1])
+    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+
+    # ---- 結論與權重依據 ----
+    st.markdown(
+        f"<div class='sw-scorecard'>"
+        f"<div style='font-weight:600;color:{INK};margin-bottom:6px;'>結論</div>"
+        f"<div style='color:{INK};line-height:1.9;font-size:.92rem;'>"
+        f"{result.interpretation}</div>"
+        f"<div style='font-weight:600;color:{INK};margin:12px 0 6px;'>"
+        f"裁罰權重的實證依據</div>"
+        f"<div style='color:{INK_2};line-height:1.9;font-size:.9rem;'>"
+        f"{result.weight_justification}</div>"
+        f"<div style='color:{INK_MUTED};font-size:.78rem;margin-top:12px;"
+        f"border-top:1px solid {LINE_SOFT};padding-top:8px;'>"
+        f"{result.not_illegality_notice}</div></div>",
+        unsafe_allow_html=True,
+    )

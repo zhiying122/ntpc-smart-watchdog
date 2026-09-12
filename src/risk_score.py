@@ -35,11 +35,12 @@ WEIGHTS = {
 
 def score_financial(row):
     """
-    財務異常分(0-100)：四層鑑識會計方法疊合，全部可解釋。
-    可解釋組成（基礎六層）：
-      班佛定律 25% + Beneish改良版 20% + Isolation Forest 25%
-      + 收支比離群 10% + 跨年度突變 10% + 賸餘短絀率 10%
+    財務異常分(0-100)：多層鑑識會計方法疊合，全部可解釋。
+    可解釋組成（基礎七層）：
+      班佛定律 22% + Beneish改良版 17% + Altman Z''困境 15% + Isolation Forest 22%
+      + 收支比離群 8% + 跨年度突變 8% + 賸餘短絀率 8%
     多層方法互相佐證：多個方法同時指向的園，風險最高。
+    Altman Z''（財務困境）同時作為 Fraud Triangle「壓力」構面的量化來源。
 
     【指標獨立性】各層捕捉「不同面向」的訊號，權重即該面向的重要性、不重複計分。
     Isolation Forest（見 forensic.analyze 的 iso_features）刻意只吃其他層未單獨
@@ -61,6 +62,7 @@ def score_financial(row):
     benford = _z(row.get("benford_score"))
     beneish = _z(row.get("beneish_score"))
     iforest = _z(row.get("iforest_score"))
+    altman = _z(row.get("altman_score"))
     # 收支比 >1 (入不敷出) 加權：超過越多分越高
     ratio = row.get("expense_income_ratio")
     ratio_pts = 0
@@ -76,8 +78,11 @@ def score_financial(row):
         deficit_ratio = abs(surplus) / income
         deficit_pts = min(deficit_ratio * 1000, 100)  # 短絀達收入10%即滿分
 
-    score = (0.25 * benford + 0.20 * beneish + 0.25 * iforest
-             + 0.10 * ratio_pts + 0.10 * yoy_pts + 0.10 * deficit_pts)
+    # 七層加權（合計 1.0）：新增 Altman Z'' 困境分 15%，其餘等比微調維持可解釋。
+    #   班佛 22% + Beneish 17% + Altman 15% + IForest 22%
+    #   + 收支比 8% + 跨年度突變 8% + 賸餘短絀率 8%
+    score = (0.22 * benford + 0.17 * beneish + 0.15 * altman + 0.22 * iforest
+             + 0.08 * ratio_pts + 0.08 * yoy_pts + 0.08 * deficit_pts)
 
     # 基金餘額勾稽加成（不對稱，只在不一致時向上加成，最多 +15 分）。
     # 取同期勾稽分與跨年度連續性勾稽分的較大者當不一致嚴重度（0–100），
@@ -480,37 +485,68 @@ def score(entity, weights=None, confidence=None, profile=None):
 EXTERNAL = os.path.join(ROOT, "data", "external")
 
 
+def _norm_key(name):
+    """外部資料 merge 用的正規化鍵（接入 entity_resolver.normalize_name）。
+
+    以正規化名稱（NFKC + 去空白 + 去「新北市立」等雜訊前綴/年度後綴）作為
+    合併鍵，消除全形/半形、前後空白、前綴差異造成的**靜默失配**。
+    normalize_name 不可用時退回裸字串（去空白），確保向後相容不拋例外。
+    """
+    try:
+        from src.entity_resolver import normalize_name
+        return normalize_name(name)
+    except Exception:
+        return str(name).strip() if name is not None else ""
+
+
+def _merge_on_normalized(left, right, right_cols):
+    """以正規化名稱為鍵，將 right 的 right_cols 併入 left（保留 left.park_name）。
+
+    作法：兩邊各建臨時鍵 `_merge_key = normalize_name(park_name)`，以此 left-merge，
+    再丟棄臨時鍵。right 依 `_merge_key` 去重（keep first），避免名稱變體造成重複列。
+    right_cols 不含 park_name（left 已有），只帶要併入的資料欄位。
+    """
+    left = left.copy()
+    right = right.copy()
+    left["_merge_key"] = left["park_name"].map(_norm_key)
+    right["_merge_key"] = right["park_name"].map(_norm_key)
+    right = right.drop_duplicates("_merge_key", keep="first")
+    keep = ["_merge_key"] + [c for c in right_cols if c in right.columns]
+    merged = left.merge(right[keep], on="_merge_key", how="left")
+    return merged.drop(columns=["_merge_key"])
+
+
 def _merge_external(df):
     """併入裁罰/評鑑、地址座標等外部資料（若檔案存在）。
 
-    ⚠️ 名稱對齊注意（規模化時需留意）：本函式以**裸 `park_name` 做 left-merge**，
-    未經名稱正規化（正規化能力見 src/entity_resolver.normalize_name，但該模組
-    目前未接入 live 主幹）。因此若 penalties.csv / geocoded.csv 的 `park_name`
-    寫法與 financials.csv 不同（全形／半形、前後空白、「新北市立」等前綴差異），
-    left-merge 會**靜默失配** → penalty_count / eval / lat / lng 變 NaN，
-    表現為「地圖缺點、裁罰歸零」。目前 60 間園實測皆正確對上；未來擴充資料源
-    時，建議先以 normalize_name 對齊兩邊 park_name，或改用 park_id 為 merge 鍵。
+    名稱對齊（弱點修復）：本函式以**正規化名稱**（見
+    src/entity_resolver.normalize_name）作為 merge 鍵，而非裸 `park_name`。
+    因此即使 penalties.csv / geocoded.csv 的 `park_name` 與 financials.csv
+    寫法不同（全形／半形、前後空白、「新北市立」等前綴或年度後綴差異），
+    仍能正確對上，不再**靜默失配**（避免 penalty_count / eval / lat / lng
+    無故變 NaN、表現為「地圖缺點、裁罰歸零」）。此為規模化擴充資料源的正解；
+    若來源已具穩定 park_id，未來可再改以 park_id 為鍵，可靠度更高。
     """
-    # 裁罰與評鑑
+    # 裁罰與評鑑（以正規化名稱為鍵）
     pen_path = os.path.join(EXTERNAL, "penalties.csv")
     if os.path.exists(pen_path):
-        pen = pd.read_csv(pen_path).drop_duplicates("park_name", keep="first")
-        pen_cols = ["park_name", "penalty_count", "eval_grade"]
+        pen = pd.read_csv(pen_path)
+        pen_cols = ["penalty_count", "eval_grade"]
         # 裁罰事由文字：供「事由分類 + 嚴重度」計分用（若來源含此欄）
         if "penalty_reason" in pen.columns:
             pen_cols.append("penalty_reason")
         # 逐筆裁罰明細（JSON，含日期）：供破窗效應計分（R25.7）
         if "penalty_records" in pen.columns:
             pen_cols.append("penalty_records")
-        df = df.merge(pen[pen_cols], on="park_name", how="left")
-    # 座標
+        df = _merge_on_normalized(df, pen, pen_cols)
+    # 座標（以正規化名稱為鍵）
     geo_path = os.path.join(ROOT, "data", "processed", "geocoded.csv")
     if os.path.exists(geo_path):
-        geo = pd.read_csv(geo_path).drop_duplicates("park_name", keep="first")
-        geo_cols = ["park_name", "lat", "lng"]
+        geo = pd.read_csv(geo_path)
+        geo_cols = ["lat", "lng"]
         if "district" in geo.columns:
             geo_cols.append("district")
-        df = df.merge(geo[geo_cols], on="park_name", how="left")
+        df = _merge_on_normalized(df, geo, geo_cols)
     return df
 
 
@@ -550,6 +586,19 @@ def build(df):
     # 裁罰分改用整列（事由分類 + 嚴重度）；無事由者自動退回中性次數規則
     df["score_penalty"] = df.apply(score_penalty, axis=1)
     df["score_eval"] = df["eval_grade"].apply(score_eval)
+
+    # 多來源風險交叉驗證（R9 輿情）：整合官方/司法/新聞/陳情/社群五層公開資訊。
+    # 「事實 vs 輿情」嚴格分離——僅『社群輿情層』的負面比例灌入 neg_ratio →
+    # score_sentiment（forensic 檔權重 15%、貢獻上限 15 分）；官方/司法事實層走
+    # 既有裁罰/財務分項。無社群訊號者 neg_ratio 為 NaN → 中性處理不放大（責任 AI）。
+    # 抽樣呈現、資料檔可規模化至爬蟲/官方 API 全量接入。
+    if "neg_ratio" not in df.columns:
+        try:
+            from src.multi_source import attach_social_neg_ratio
+            df = attach_social_neg_ratio(df)
+        except Exception:
+            df["neg_ratio"] = float("nan")
+    df["score_sentiment"] = df["neg_ratio"].apply(score_sentiment)
 
     # 評分檔（R26）：每列自動判定 forensic（有獨立財報）/ behavioral（無財報，
     # 如國小附設幼兒園）。目前資料皆有財報 → 全為 forensic；未來納入附幼
@@ -617,6 +666,8 @@ def main(src=None):
             "expense_income_ratio", "benford_mad", "benford_sample_n", "benford_score",
             "benford_chi2", "benford_pvalue", "benford_significant",
             "beneish_score", "beneish_egdi", "beneish_tata",
+            # Altman Z'' 在地化困境分（財務困境＝舞弊壓力，接 Fraud Triangle）
+            "altman_score", "altman_z2", "altman_zone",
             "iforest_score", "iforest_explain",
             "expense_yoy_pct",
             # 基金餘額勾稽（鑑識旗標）：期末餘額、勾稽一致性與可疑分
@@ -624,6 +675,8 @@ def main(src=None):
             "fund_recon_score", "fund_recon_consistent", "fund_continuity_score",
             "penalty_count", "penalty_reason", "penalty_category", "eval_grade",
             "penalty_records",
+            # 社群輿論示警：負面比例與輿情分（供 UI 呈現與計分追溯）。
+            "neg_ratio", "score_sentiment",
             "score_financial", "score_penalty", "score_eval",
             # 評分檔別（R26）：forensic（有財報）/ behavioral（無財報附幼），
             # 附加欄位不破壞既有載入契約。
