@@ -28,7 +28,6 @@ common.setup_page(
     header_title="資料治理權限矩陣",
     subtitle="以角色、職責與必要性決定誰可以看到哪些資料。權限在資料層控管，非前端隱藏。",
     module="資料治理",
-    crumb="Data Governance",
     allowed_roles=[permissions.ROLE_GOV, permissions.ROLE_INSPECTOR],
 )
 

@@ -26,6 +26,7 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from src import allocation as _alloc  # noqa: E402
+from src import alert as _alert  # noqa: E402
 from src import simulation as _sim  # noqa: E402
 from src.models import SimParams  # noqa: E402
 
@@ -53,11 +54,20 @@ def to_institutions(df: pd.DataFrame) -> list[_alloc.Institution]:
             score = float(score)
         except (TypeError, ValueError):
             continue
+        # 以單一事實來源（src.alert）算出該機構特有的異常訊號摘要，
+        # 供分派引擎產生「每間不同」的入選理由（取前 3 項，避免過長）。
+        try:
+            signals = _alert.reasons_for_row(r)[:3]
+        except Exception:
+            signals = []
         out.append(_alloc.Institution(
             park_id=str(r.get("park_id")),
             risk_score=score,
             district=(None if pd.isna(r.get("district")) else str(r.get("district"))),
-            attributes={"park_name": str(r.get("park_name", ""))},
+            attributes={
+                "park_name": str(r.get("park_name", "")),
+                "signal_summary": signals,
+            },
         ))
     return out
 

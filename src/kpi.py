@@ -189,16 +189,19 @@ class KpiInputs:
 # --------------------------------------------------------------------------
 KPI_DEFINITIONS: dict[str, str] = {
     "risk_detection_rate": (
-        "風險偵測率（Risk Detection Rate）：在所有真實異常機構中，"
-        "被系統標記為高風險而成功偵測的比例，等同召回率的整體概念。"
+        "風險偵測率（Recall / Detection Rate）＝命中真實異常 ÷ 全部真實異常。"
+        "以進入 Top-K 優先稽查名單者為「被偵測」；當 K 涵蓋全部機構時，即為"
+        "整體召回。分母是「真實異常數」，不是全體機構數。此指標與 Recall@K "
+        "同定義（K 相同時數值相等），兩者非彼此矛盾。"
     ),
     "recall_at_k": (
-        "Recall@K：在風險分數最高的前 K 間機構中，命中的真實異常數，"
-        "除以全部真實異常數；衡量有限稽查名額下的涵蓋能力。"
+        "Recall@K＝Top-K 名單命中真實異常 ÷ 全部真實異常。分母同為「真實異常"
+        "數」。K 越大涵蓋越廣、Recall 越高；K 涵蓋全部真實異常時 Recall=100%，"
+        "此時的 100% 反映名單夠長，非模型無誤判（誤判看 Precision@K／FPR）。"
     ),
     "precision_at_k": (
-        "Precision@K：在風險分數最高的前 K 間機構中，實際為異常者所佔比例；"
-        "衡量優先稽查名單的準確度。"
+        "Precision@K＝Top-K 名單命中真實異常 ÷ K。分母是「名單長度 K」（與 "
+        "Recall 分母不同）。衡量優先稽查名單的準確度：名單中真的有問題的比例。"
     ),
     "fpr": (
         "FPR（偽陽性率）：在所有真實非異常機構中，被系統誤標為高風險的比例；"
@@ -280,7 +283,14 @@ class KpiCalculator:
         return inputs.has_ground_truth or self._has_confusion(inputs)
 
     def _risk_detection_rate(self, inputs: KpiInputs) -> KpiMetric:
-        """風險偵測率 = TP / (TP + FN)（真實異常中被偵測的比例）。"""
+        """風險偵測率 = TP / (TP + FN)（真實異常中被偵測到的比例，即整體召回）。
+
+        無混淆矩陣、僅有排序弱標籤時：以「進入 Top-K 優先稽查名單」近似為
+        「被系統判為高風險（偵測）」，分子＝Top-K 名單命中的真實異常數、
+        分母＝全部真實異常數。此定義與 Recall@K 一致（同分子同分母）；
+        當 K 涵蓋全部機構時，兩者皆等於整體召回。定義文字已載明此關係，
+        避免與 Recall@K 被誤讀為方向矛盾的兩個指標。
+        """
         based = self._label_based(inputs)
         if self._has_confusion(inputs):
             tp = inputs.true_positives or 0
@@ -289,10 +299,16 @@ class KpiCalculator:
             basis = f"據混淆矩陣 TP={tp}, FN={fn} 計算。"
         elif inputs.ranked_labels is not None:
             labels = list(inputs.ranked_labels)
-            positives = sum(1 for x in labels if x)
-            # 以「被標記為高風險者」近似為排名前段命中；無真實標籤時為估算。
-            value = _safe_ratio(positives, len(labels))
-            basis = "依排序標籤序列估算真實異常佔比。"
+            n = len(labels)
+            k = self._effective_k(inputs, n)
+            total_positives = sum(1 for x in labels if x)
+            hits_in_topk = sum(1 for x in labels[:k] if x)
+            value = _safe_ratio(hits_in_topk, total_positives)
+            basis = (
+                f"以 Top-K 名單為偵測近似：K={k}，名單命中真實異常 "
+                f"{hits_in_topk} / 全部真實異常 {total_positives}"
+                f"（與 Recall@K 同定義；分母為真實異常數，非全體機構數）。"
+            )
         else:
             value = 0.0
             basis = "缺乏真實標籤，暫以替代標註策略（弱監督／歷史裁罰）估算。"
@@ -325,7 +341,8 @@ class KpiCalculator:
             hits_in_topk = sum(1 for x in labels[:k] if x)
             value = _safe_ratio(hits_in_topk, total_positives)
             basis = (
-                f"K={k}，前 K 命中 {hits_in_topk} / 全部真實異常 {total_positives}。"
+                f"K={k}，前 K 命中 {hits_in_topk} / 全部真實異常 {total_positives}"
+                f"（分母＝真實異常數）。"
             )
         return KpiMetric(
             key="recall_at_k",
@@ -348,7 +365,7 @@ class KpiCalculator:
             k = self._effective_k(inputs, n)
             hits_in_topk = sum(1 for x in labels[:k] if x)
             value = _safe_ratio(hits_in_topk, k)
-            basis = f"K={k}，前 K 命中 {hits_in_topk} / K={k}。"
+            basis = f"K={k}，前 K 命中 {hits_in_topk} / K={k}（分母＝名單長度 K）。"
         return KpiMetric(
             key="precision_at_k",
             name="Precision@K",

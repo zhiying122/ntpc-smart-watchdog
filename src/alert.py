@@ -155,15 +155,73 @@ def _collect_reasons(row: pd.Series) -> list[str]:
     return reasons
 
 
-def _action_for(level: str, reasons: list[str]) -> str:
+def _concrete_actions(row: pd.Series) -> list[str]:
+    """依觸發訊號對應「具體下一步稽查動作」（非重述異常原因）。
+
+    每個異常訊號對應一個稽查員實際會做的查核步驟，讓「建議行動」欄提供
+    新資訊（該去做什麼），而非重複「主要觸發原因」欄（為什麼被示警）。
+    依風險關聯度排序，取前幾項組成行動建議。
+    """
+    actions: list[str] = []
+
+    def _num(col):
+        v = row.get(col)
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    ratio = _num("expense_income_ratio")
+    if ratio is not None and ratio > 1.0:
+        actions.append("調閱最近學年度收支明細與人事費憑證，查核入不敷出成因")
+
+    pen = _num("penalty_count")
+    if pen is not None and pen >= 1:
+        actions.append("調閱歷次裁罰處分書，確認限期改善事項是否已完成複查")
+
+    mad = _num("benford_mad")
+    if mad is not None and mad >= 0.04:
+        actions.append("抽驗原始傳票與發票，比對申報數字是否有異常湊整或造假")
+
+    yoy = _num("expense_yoy_pct")
+    if yoy is not None and abs(yoy) >= 30:
+        actions.append("比對跨年度帳冊，釐清支出突變對應之採購或人事異動")
+
+    grade = row.get("eval_grade")
+    if isinstance(grade, str) and grade in ("乙", "待改進"):
+        actions.append("調閱評鑑委員意見表，追蹤缺失改善進度並安排實地訪視")
+
+    # 通用實地查核（幼兒實際在園人數影響收費與補助核算，屬高關聯查核點）
+    sf = _num("score_financial")
+    if (sf is not None and sf >= 50) or (ratio is not None and ratio > 1.0):
+        actions.append("實地或電訪確認幼兒實際在園人數，勾稽收費與補助申報基礎")
+
+    return actions
+
+
+def reasons_for_row(row: pd.Series) -> list[str]:
+    """公開入口：回傳單一機構（一列資料）的異常訊號摘要清單。
+
+    供其他模組（如派工決策台）以單一事實來源取得「為什麼這間值得關注」的
+    可解釋風險因子摘要，避免各處重複實作訊號判斷邏輯。
+    """
+    return _collect_reasons(row)
+
+
+def _action_for(level: str, row: pd.Series) -> str:
     if level == CRITICAL_ALERT:
-        base = "建議本期立即納入稽查名單、優先派員查核"
+        base = "本期立即納入稽查名單、優先派員查核"
     elif level == WATCHLIST:
-        base = "建議納入主動追蹤清單，資料更新時重新評估（尚未達高風險但接近門檻）"
+        base = "納入主動追蹤清單，資料更新時重新評估（尚未達高風險但接近門檻）"
     else:
-        base = "維持例行監測"
-    if reasons:
-        return f"{base}；重點查核方向：{reasons[0]}"
+        return "維持例行監測"
+
+    actions = _concrete_actions(row)
+    if actions:
+        # 紅色警報給前兩項具體動作、橘色預警給一項，避免版面過長。
+        n = 2 if level == CRITICAL_ALERT else 1
+        steps = "；".join(f"{i}. {a}" for i, a in enumerate(actions[:n], 1))
+        return f"{base}。下一步：{steps}"
     return base
 
 
@@ -234,7 +292,7 @@ def evaluate(df: pd.DataFrame, config: AlertConfig | None = None,
             percentile=pct,
             peer_z=z_val,
             reasons=reasons,
-            recommended_action=_action_for(level, reasons),
+            recommended_action=_action_for(level, work.loc[i]),
             color=ALERT_COLOR[level],
         ))
 
