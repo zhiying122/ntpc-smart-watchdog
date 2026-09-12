@@ -22,14 +22,36 @@ common.setup_page(
 
 df = common.require_data()
 
+# ---------- 全市涵蓋層（廣度）：全新北市立案幼兒園納管概況 ----------
+# 深度層（具真實財務決算、可算鑑識會計風險分）與廣度層（全市名冊、基本資料
+# 已納管、財務待接入）並存，展現「抽樣深度 + 全市涵蓋」與架構可規模化。
+_cov = common.roster_coverage()
+if _cov:
+    common.section("全市納管涵蓋", "map")
+    common.kpi_band([
+        ("全市立案機構", f"{_cov['total']:,}", False, f"涵蓋 {_cov['districts']} 個行政區"),
+        ("已完成風險評分", f"{_cov['scored']}", False, "具真實財務決算·鑑識會計分析"),
+        ("基本資料納管", f"{_cov['roster_only']:,}", False, "財務資料待接入"),
+        ("涵蓋行政區", f"{_cov['districts']}", False, "全新北市"),
+    ])
+    st.markdown(
+        f"<div style='color:{common.INK_MUTED};font-size:.8rem;margin:8px 0 4px;'>"
+        f"系統已納管全市 {_cov['total']:,} 間立案幼兒園基本資料（來源：新北市政府"
+        f"資料開放平台）；其中 {_cov['scored']} 間具真實財務決算，已完成鑑識會計"
+        f"風險評分（下方分析）。其餘機構之財務資料接入後即可套用相同分析流程——"
+        f"架構可規模化至全市。</div>",
+        unsafe_allow_html=True,
+    )
+
 # ---------- 第一層：Risk Overview（企業級 KPI stat 帶）----------
+common.section("已評分機構風險概況", "dashboard")
 n_high = int((df["risk_level"] == "高").sum())
 n_mid = int((df["risk_level"] == "中").sum())
 common.kpi_band([
-    ("納管機構數", f"{len(df)}", False, "全體受監理教保機構"),
+    ("已評分機構數", f"{len(df)}", False, "具財務決算·完整鑑識分析"),
     ("高風險機構", f"{n_high}", True, "建議優先稽查"),
     ("待複核（中風險）", f"{n_mid}", False, "納入例行追蹤"),
-    ("平均風險分", f"{df['risk_total'].mean():.1f}", False, "全體平均"),
+    ("平均風險分", f"{df['risk_total'].mean():.1f}", False, "已評分機構平均"),
 ])
 
 # ---------- 今日待處理（工作台：行動優先，一進來先看要處理哪幾件）----------

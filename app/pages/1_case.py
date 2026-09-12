@@ -91,7 +91,6 @@ if _is_closed:
         f"如需重啟調查，可點右側「重新開啟案件」，案件將回到「待研判」並重新納入待辦。</div>",
         unsafe_allow_html=True,
     )
-    st.markdown("<div class='sw-decision-scope'>", unsafe_allow_html=True)
     _rc = st.columns([1.2, 3])
     with _rc[0]:
         if st.button("重新開啟案件", key=f"reopen::{_entity_id}",
@@ -107,11 +106,9 @@ if _is_closed:
             f"僅在歷程新增一筆「重新開啟」，維持完整稽核軌跡。</div>",
             unsafe_allow_html=True,
         )
-    st.markdown("</div>", unsafe_allow_html=True)
 else:
     # ---- 未結案：四顆決策按鈕（含新增的「結案·屬實」）----
     _DECISIONS = ["建議派查", "存疑待補", "結案·屬實", "不成立結案"]
-    st.markdown("<div class='sw-decision-scope'>", unsafe_allow_html=True)
     _dc = st.columns(len(_DECISIONS))
     for _i, _label in enumerate(_DECISIONS):
         with _dc[_i]:
@@ -126,7 +123,6 @@ else:
                         _entity_id, f"risk::{_entity_id}::{row.get('year', '')}", _fb_label)
                 st.toast(f"已將本案標記為「{_new.status_label()}」", icon="✅")
                 st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
     st.markdown(
         f"<div style='color:{common.INK_MUTED};font-size:.78rem;line-height:1.6;"
         f"margin-top:8px;'>決策即時記錄並跨頁同步："

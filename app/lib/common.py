@@ -42,6 +42,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 PROC = os.path.join(ROOT, "data", "processed")
 LATEST_CSV = os.path.join(PROC, "kindergartens_latest.csv")
 FULL_CSV = os.path.join(PROC, "kindergartens.csv")
+ROSTER_CSV = os.path.join(PROC, "kindergartens_roster.csv")  # 全市涵蓋層（廣度）
 
 # ===========================================================================
 # 設計 Tokens
@@ -173,6 +174,37 @@ def load_full():
     if not os.path.exists(FULL_CSV):
         return None
     return pd.read_csv(FULL_CSV)
+
+
+@st.cache_data(show_spinner=False)
+def load_roster():
+    """全市涵蓋層（廣度）：全新北市立案幼兒園名冊。
+
+    每列一間機構，含 data_status 欄位：
+      - "scored"：已具真實鑑識會計風險分（深度層，與 latest 對應）。
+      - "roster_only"：僅基本資料（名稱/類型/行政區/地址/電話），風險欄位空，
+        待接入財務資料。
+    檔案不存在時回傳 None（頁面應優雅退化，不影響既有 61 間分析功能）。
+    由 scripts/fetch_ntpc_roster.py 從新北市政府資料開放平台產生。
+    """
+    if not os.path.exists(ROSTER_CSV):
+        return None
+    return pd.read_csv(ROSTER_CSV)
+
+
+def roster_coverage():
+    """回傳全市涵蓋統計 dict（供總覽 KPI）；無 roster 檔時回 None。"""
+    r = load_roster()
+    if r is None or len(r) == 0:
+        return None
+    n_total = len(r)
+    n_scored = int((r["data_status"] == "scored").sum())
+    return {
+        "total": n_total,
+        "scored": n_scored,
+        "roster_only": n_total - n_scored,
+        "districts": int(r["district"].dropna().nunique()),
+    }
 
 
 def data_updated_at():
@@ -1007,31 +1039,28 @@ def status_banner(record):
                 f"最後更新 {html.escape(record.updated_at)}{who}</div>")
     tag = "已結案" if is_closed else "處理中"
     tag_color = fg if is_closed else INK_MUTED
-    st.markdown(
-        f"""
-        <div style="display:flex;align-items:center;justify-content:space-between;
-             gap:16px;flex-wrap:wrap;background:{bg};border:1px solid {bd};
-             border-left:5px solid {fg};border-radius:{'8px'};padding:14px 20px;
-             margin:6px 0 10px;">
-          <div style="display:flex;align-items:center;gap:14px;">
-            <span style="width:12px;height:12px;border-radius:50%;background:{fg};
-                  flex:0 0 12px;"></span>
-            <div>
-              <div style="color:{INK_MUTED};font-size:.72rem;font-weight:600;
-                   letter-spacing:.08em;">目前案件狀態</div>
-              <div style="color:{fg};font-size:1.35rem;font-weight:700;line-height:1.2;
-                   margin-top:2px;">{html.escape(label)}</div>
-              {meta}
-            </div>
-          </div>
-          <div style="color:{tag_color};font-size:.8rem;font-weight:700;
-               border:1px solid {tag_color}55;border-radius:999px;padding:4px 14px;">
-            {tag}
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    # 重要：組成「單行、無前導縮排」的 HTML 再輸出。Streamlit 的 Markdown 解析器
+    # 會把縮排 ≥4 空白的行當成程式碼區塊，導致 HTML 標籤（如 </div>）以純文字漏出。
+    banner = (
+        f"<div style='display:flex;align-items:center;justify-content:space-between;"
+        f"gap:16px;flex-wrap:wrap;background:{bg};border:1px solid {bd};"
+        f"border-left:5px solid {fg};border-radius:8px;padding:14px 20px;"
+        f"margin:6px 0 10px;'>"
+        f"<div style='display:flex;align-items:center;gap:14px;'>"
+        f"<span style='width:12px;height:12px;border-radius:50%;background:{fg};"
+        f"flex:0 0 12px;'></span>"
+        f"<div>"
+        f"<div style='color:{INK_MUTED};font-size:.72rem;font-weight:600;"
+        f"letter-spacing:.08em;'>目前案件狀態</div>"
+        f"<div style='color:{fg};font-size:1.35rem;font-weight:700;line-height:1.2;"
+        f"margin-top:2px;'>{html.escape(label)}</div>"
+        f"{meta}"
+        f"</div></div>"
+        f"<div style='color:{tag_color};font-size:.8rem;font-weight:700;"
+        f"border:1px solid {tag_color}55;border-radius:999px;padding:4px 14px;'>{tag}</div>"
+        f"</div>"
     )
+    st.markdown(banner, unsafe_allow_html=True)
 
 
 def decision_bar(row, record, decisions):
