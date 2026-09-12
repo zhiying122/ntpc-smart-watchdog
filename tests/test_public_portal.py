@@ -440,3 +440,74 @@ def test_load_financial_transparency_data():
     assert info["total_expense"] > 0
     assert "決算書" in info["source"]
 
+
+# ===========================================================================
+# 輿情觀測升級：學年度365天時間窗、官方處分納入關注度與園名示範比對
+# ===========================================================================
+def test_sentiment_window_is_academic_year():
+    """驗證觀測時間窗擴展為學年度週期（365天）。"""
+    assert sw.RECENT_WINDOW_DAYS == 365
+
+
+def test_enrich_item_parses_slash_date():
+    """驗證 enrich_item 正確解析包含斜線之日期字串（如 2025/10/08）。"""
+    raw = {
+        "source_type": "official",
+        "title": "主管機關公告處分",
+        "excerpt": "違反法條規定",
+        "published": "2025/10/08",
+    }
+    item = sw.enrich_item(raw)
+    assert item.published == date(2025, 10, 8)
+    assert item.source_type_label == "主管機關裁罰公告"
+
+
+def test_attention_for_integrates_penalty_records(monkeypatch):
+    """驗證 attention_for 傳入裁罰紀錄時，產生官方公開信號且指數大於 0。"""
+    import importlib
+    portal = importlib.import_module("公開查詢")
+    # mock fetch_live_news 避免觸網
+    monkeypatch.setattr(portal, "fetch_live_news", lambda *a, **k: [])
+
+    sample_penalties = [{
+        "date": "2026/05/15",
+        "law": "第31條第3項幼兒園幼童專用車標識、接送幼兒、駕駛人或隨車人員未符規定。",
+        "punishment": "罰鍰：9,000元",
+        "subject_type": "負責人",
+    }]
+    items, summary, index, meta = portal.attention_for(
+        "TEST_ID", "測試幼兒園", "板橋區", {"institutions": {}},
+        penalty_records=sample_penalties,
+    )
+    assert len(items) == 1
+    assert items[0].source_type == "official"
+    assert "罰鍰：9,000元" in items[0].title
+    assert meta["official_penalties"] == 1
+    assert index.total > 0
+    assert summary.level != sw.LEVEL_NONE
+
+
+def test_attention_for_matches_demo_by_park_name(monkeypatch):
+    """驗證 attention_for 當 ID 不符時，能以園名模糊比對 demo 資料。"""
+    import importlib
+    portal = importlib.import_module("公開查詢")
+    monkeypatch.setattr(portal, "fetch_live_news", lambda *a, **k: [])
+
+    demo_data = {
+        "institutions": {
+            "UUID_123": {
+                "park_name": "新北市私立嘉盛幼兒園",
+                "items": [
+                    {"source_type": "review", "title": "環境乾淨", "excerpt": "老師親切",
+                     "url": "http://x", "published": "2026-06-10"}
+                ]
+            }
+        }
+    }
+    items, summary, index, meta = portal.attention_for(
+        "R9999", "新北市私立嘉盛幼兒園", "板橋區", demo_data,
+    )
+    assert len(items) == 1
+    assert meta["demo"] == 1
+
+

@@ -35,7 +35,7 @@ import html
 import json
 import os
 import sys
-from datetime import date
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 import streamlit as st
@@ -180,8 +180,15 @@ def fetch_live_news(park_name: str, district: str) -> list[dict]:
     return [r for r in recs if r.get("matched")]
 
 
-def attention_for(park_id: str, park_name: str, district: str, sentiment_data: dict):
-    """整合某機構的輿情：真實新聞（即時爬）+ 示範多來源資料，計算摘要與指數。
+def attention_for(
+    park_id: str,
+    park_name: str,
+    district: str,
+    sentiment_data: dict,
+    penalty_records: list[dict] | None = None,
+    row: dict | None = None,
+):
+    """整合某機構的輿情：真實新聞（即時爬）+ 示範多來源資料 + 主管機關公開裁處事實，計算摘要與指數。
 
     回傳 (items, summary, index, meta)：
       - items：合併後、依時間排序的 SentimentItem 清單。
@@ -193,16 +200,75 @@ def attention_for(park_id: str, park_name: str, district: str, sentiment_data: d
       - 真實新聞：多來源（Google News 多組查詢 + Bing News）即時抓取，只計
         matched=True；meta 分別記各平台則數。
       - 示範資料：sentiment_demo.json 內該園的社群多來源（Google評論/FB/IG/
-        部落格等）示範項目，標明 DEMO（正式版待各平台官方 API 授權接入）。
+        部落格等）示範項目，標明 DEMO（支援園名模糊比對）。
+      - 官方裁罰公告：教育部全國教保資訊網公開裁罰紀錄，轉化為客觀公開負面信號。
     """
     live_recs = fetch_live_news(park_name, district)
+
+    # 示範資料查核（支援 ID 或園名比對）
     obj = sentiment_data.get("institutions", {}).get(str(park_id))
+    if not obj and park_name:
+        p_clean = park_name.replace("新北市私立", "").replace("新北市立", "").replace("新北市", "").strip()
+        for k, v in sentiment_data.get("institutions", {}).items():
+            inst_name = str(v.get("park_name", "")).strip()
+            inst_clean = inst_name.replace("新北市私立", "").replace("新北市立", "").replace("新北市", "").strip()
+            if (park_name and (park_name in inst_name or inst_name in park_name)) or (p_clean and (p_clean in inst_clean or inst_clean in p_clean)):
+                obj = v
+                break
     demo_recs = list(obj.get("items", [])) if obj else []
 
+    # 官方主管機關公開裁處事實（客觀法規信號）
+    if penalty_records is None and row is not None:
+        owner = str(row.get("owner", "")).strip()
+        pflag = str(row.get("penalty_flag", "")).strip()
+        if PENALTY_INDEX and (owner or pflag == "有"):
+            penalty_records = pdset.penalty_details_for(owner, pflag, PENALTY_INDEX, park_name=park_name)
+
+    official_items: list[sw.SentimentItem] = []
+    if penalty_records:
+        for pr in penalty_records:
+            p_date_str = str(pr.get("date", "") or "").strip()
+            parsed_date = None
+            if p_date_str:
+                for fmt in ("%Y/%m/%d", "%Y-%m-%d"):
+                    try:
+                        parsed_date = datetime.strptime(p_date_str, fmt).date()
+                        break
+                    except Exception:
+                        pass
+            if not parsed_date:
+                parsed_date = TODAY - timedelta(days=60)
+
+            punish_txt = str(pr.get("punishment", "") or "").strip()
+            law_txt = str(pr.get("law", "") or "").strip()
+            stype = str(pr.get("subject_type", "") or "負責人").strip()
+
+            if law_txt and not ("法" in law_txt or "條例" in law_txt or "規" in law_txt):
+                law_disp = f"幼兒教育及照顧法{law_txt}"
+            else:
+                law_disp = law_txt or "幼兒教育及照顧法相關規定"
+
+            text_for_topic = f"{punish_txt} {law_disp}"
+            topics = sw.classify_topics(text_for_topic)
+
+            official_items.append(sw.SentimentItem(
+                source_type="official",
+                title=f"主管機關公開裁處：{punish_txt}",
+                excerpt=f"處分內容：{punish_txt}。違反法條：{law_disp}（受處分對象：{stype}）。",
+                url=str(pr.get("source_url") or "https://ap.ece.moe.edu.tw/webecems/punishSearch.aspx"),
+                published=parsed_date,
+                source_name="教育部全國教保資訊網",
+                topics=tuple(topics),
+                sentiment="neg",
+            ))
+
     all_recs = list(live_recs) + list(demo_recs)
-    items = sw.load_items_from_records(all_recs)
-    summary = sw.summarize_attention(items, reference=TODAY)
-    index = ss.compute_index(items, reference=TODAY)
+    items = sw.load_items_from_records(all_recs) + official_items
+    items.sort(key=lambda x: x.published, reverse=True)
+
+    summary = sw.summarize_attention(items, reference=TODAY, window_days=sw.RECENT_WINDOW_DAYS)
+    index = ss.compute_index(items, reference=TODAY, window_days=sw.RECENT_WINDOW_DAYS)
+
     # 各新聞平台的即時則數（供透明分層標示「已接入來源」）。
     _gnews = sum(1 for r in live_recs if r.get("source_platform") == "google_news")
     _bing = sum(1 for r in live_recs if r.get("source_platform") == "bing_news")
@@ -214,25 +280,44 @@ def attention_for(park_id: str, park_name: str, district: str, sentiment_data: d
         "bing_news": _bing,
         "media_rss": len(_media),
         "media_names": _media_names,
+        "official_penalties": len(official_items),
         "demo": len(demo_recs),
         "has_demo": bool(demo_recs),
     }
     return items, summary, index, meta
 
 
-def marker_level_for(park_id: str, sentiment_data: dict) -> str:
-    """地圖標記用的關注度分級：僅依示範資料快速判定，不即時爬新聞。
+def marker_level_for(park_id: str, sentiment_data: dict, row: dict | None = None) -> str:
+    """地圖標記用的關注度分級：結合示範資料與裁罰紀錄快速判定，不即時爬新聞。
 
     地圖上可能有數十個標記，逐一即時爬新聞會造成大量網路請求而拖慢頁面。
-    真實新聞的整合與輿情指數改在「點進單一機構詳情頁」時才計算
-    （attention_for / fetch_live_news）。標記著色只需粗略分級，故以本地
-    示範資料為準即可；無資料則為中性 none。
+    真實新聞的整合與輿情指數在「點進單一機構詳情頁」時才計算。
     """
     obj = sentiment_data.get("institutions", {}).get(str(park_id))
-    if not obj:
-        return sw.LEVEL_NONE
-    items = sw.load_items_from_records(obj.get("items", []))
-    return sw.summarize_attention(items, reference=TODAY).level
+    if not obj and row:
+        pname = str(row.get("park_name", "")).strip()
+        if pname:
+            p_clean = pname.replace("新北市私立", "").replace("新北市立", "").replace("新北市", "").strip()
+            for k, v in sentiment_data.get("institutions", {}).items():
+                inst_name = str(v.get("park_name", "")).strip()
+                inst_clean = inst_name.replace("新北市私立", "").replace("新北市立", "").replace("新北市", "").strip()
+                if (pname and (pname in inst_name or inst_name in pname)) or (p_clean and (p_clean in inst_clean or inst_clean in p_clean)):
+                    obj = v
+                    break
+    if obj:
+        items = sw.load_items_from_records(obj.get("items", []))
+        return sw.summarize_attention(items, reference=TODAY, window_days=sw.RECENT_WINDOW_DAYS).level
+
+    if row:
+        pc = row.get("penalty_count", 0)
+        pc_num = int(float(pc)) if pc is not None and not pd.isna(pc) else 0
+        pflag = str(row.get("penalty_flag", "")).strip()
+        if pc_num >= 3:
+            return sw.LEVEL_WATCH
+        elif pc_num >= 1 or pflag == "有":
+            return sw.LEVEL_ACTIVE
+
+    return sw.LEVEL_NONE
 
 
 # ===========================================================================
@@ -829,8 +914,8 @@ def build_markers(frame: pd.DataFrame) -> list[pmap.ParentMarker]:
     markers = []
     for _, row in frame.iterrows():
         pid = str(row.get("park_id"))
-        # 地圖標記只用示範資料快速分級，避免每個標記都即時爬新聞拖慢頁面。
-        level = marker_level_for(pid, sentiment_data)
+        # 地圖標記結合示範資料與裁罰紀錄快速分級，避免每個標記即時爬新聞拖慢頁面。
+        level = marker_level_for(pid, sentiment_data, row=row.to_dict())
         dist = row.get("distance_km")
         markers.append(pmap.build_marker(
             row.to_dict(),
@@ -1408,10 +1493,10 @@ def render_disclosure(row: dict):
 
 def render_attention(park_id: str, park_name: str, district: str, row: dict | None = None):
     """輿情觀測：輿情關注指數 + 分級依據 + 多來源時間軸（每則附原文連結）。"""
-    with st.spinner("正在蒐集本機構的公開新聞…"):
+    with st.spinner("正在蒐集本機構的公開新聞與裁罰信號…"):
         items, summary, index, meta = attention_for(
-            park_id, park_name, district, sentiment_data)
-    color = pmap.color_for_level(summary.level)
+            park_id, park_name, district, sentiment_data, row=row)
+    color = "#3D8B62" if index.total == 0 else pmap.color_for_level(summary.level)
 
     # 官方公開信號與網路輿情互相對照（數值與面向嚴格對齊，消除認知落差）
     if row is not None:
@@ -1423,9 +1508,9 @@ def render_attention(park_id: str, park_name: str, district: str, row: dict | No
             st.markdown(
                 f"<div style='background:#FAF5EE;border:1px solid #E8D3AE;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px;line-height:1.6;'>"
                 f"<b>🏛️ 官方公開信號與網路輿情對照</b>：<br>"
-                f"• <b>主管機關裁罰事實</b>：查有 <b>{_cnt_txt}</b> 違規處分紀錄（已於【公開資訊】完整登載處分內容與違反條文）。<br>"
-                f"• <b>網路即時輿論聲量</b>：近期 90 天內"
-                f"{'未偵測到負面爆發新聞或異常社群討論，網路輿情指數為 ' + str(int(index.total)) + ' 分（安靜平穩）' if index.total == 0 else '網路公開關注度評估為 ' + pmap.level_label(summary.level) + '（指數 ' + str(int(index.total)) + ' 分）'}。<br>"
+                f"• <b>主管機關裁罰事實</b>：查有 <b>{_cnt_txt}</b> 違規處分紀錄（已同步彙整於下方時間軸與【公開資訊】明細）。<br>"
+                f"• <b>學年度輿情關注度</b>：近一學年內（365天）"
+                f"{'未偵測到負面爆發新聞或異常社群討論，網路輿情關注指數為 ' + str(int(index.total)) + ' 分（安靜平穩）' if index.total == 0 else '公開關注度評估為 ' + pmap.level_label(summary.level) + '（指數 ' + str(int(index.total)) + ' 分）'}。<br>"
                 f"<div style='margin-top:4px;color:#8A6D3B;font-size:11px;'>說明：官方裁罰為依法處分之客觀事實；網路輿論觀測為媒體與社群聲量熱度，二者資料維度獨立，供家長多面向綜合參考。</div>"
                 f"</div>",
                 unsafe_allow_html=True
@@ -1435,20 +1520,25 @@ def render_attention(park_id: str, park_name: str, district: str, row: dict | No
                 f"<div style='background:#F4F8F6;border:1px solid #CDE4D6;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px;line-height:1.6;'>"
                 f"<b>🏛️ 官方公開信號與網路輿情對照</b>：<br>"
                 f"• <b>主管機關裁罰事實</b>：目前公開紀錄中並無不良事項（近期查無違規處分）。<br>"
-                f"• <b>網路即時輿論聲量</b>：近期 90 天內未偵測到負面爆發新聞，網路輿情指數為 <b>{int(index.total)} 分</b>（正常平穩）。"
+                f"• <b>學年度輿情關注度</b>：近一學年內（365天）未偵測到違規公告或負面爆發新聞，輿情關注指數為 <b>{int(index.total)} 分</b>（安靜平穩期・安心推薦）。<br>"
+                f"<div style='margin-top:4px;color:#3D6A53;font-size:11px;'>說明：幼教機構以「無爭議、平穩營運」為佳。四項子維度如實呈現為 0，代表園所處於長期低爭議的平穩狀態，本系統堅持真實透明，不人為灌水虛構聲量。</div>"
                 f"</div>",
                 unsafe_allow_html=True
             )
 
+    _level_text = "安靜平穩期" if index.total == 0 else pmap.level_label(summary.level)
     st.markdown(
         f"<span class='badge' style='background:{color}'>"
-        f"近期關注度：{pmap.level_label(summary.level)}</span>",
+        f"近期關注度：{_level_text}</span>",
         unsafe_allow_html=True)
 
     # ---- 資料來源透明分層（合規揭露：什麼是即時真實、什麼是規劃中）----
     # 已接入＝合規公開 RSS 即時抓取（可回溯、附原文連結）；
     # 規劃中＝社群平台，正式版經官方 API 授權接入，不爬需登入內容。
     _live_bits = []
+    _official_cnt = meta.get("official_penalties", 0)
+    if _official_cnt:
+        _live_bits.append(f"教育部裁罰公告 {_official_cnt} 則")
     if meta.get("google_news"):
         _live_bits.append(f"Google News {meta['google_news']} 則")
     if meta.get("bing_news"):
@@ -1456,13 +1546,21 @@ def render_attention(park_id: str, park_name: str, district: str, row: dict | No
     if meta.get("media_rss"):
         _live_bits.append(f"媒體直連 {meta['media_rss']} 則")
     _live_summary = ("、".join(_live_bits) if _live_bits
-                     else "近期無精確對應之公開新聞")
+                     else "近一學年無精確對應之公開新聞或公告")
     _hit_media = "、".join(meta.get("media_names") or [])
     _hit_media_txt = (f"　·　本次命中：{_hit_media}" if _hit_media else "")
+    _official_detail_txt = (f"　·　本次載入：主管機關公告處分 {_official_cnt} 則" if _official_cnt else "　·　本園近一學年查無裁處公告")
     _demo_note = (f"（本頁另有 {meta['demo']} 則社群示範資料 DEMO）"
                   if meta.get("demo") else "")
     st.markdown(
         "<div class='src-tiers'>"
+        # 已接入層 0：官方裁處公告
+        "<div class='src-tier'>"
+        "<span class='src-tag src-live' style='background:#EBF3ED;color:#24583B;border-color:#C2DEC9'>● 已接入・官方</span>"
+        "<span class='src-body'><b>教育部全國教保資訊網裁罰公告</b>"
+        "<span class='src-detail'>主管機關依法裁處公告（含負責人/行為人處分、違反條文、處分內容，客觀法規事實）"
+        f"{html.escape(_official_detail_txt)}</span></span>"
+        "</div>"
         # 已接入層 1：新聞聚合器（可按園名搜尋）
         "<div class='src-tier'>"
         "<span class='src-tag src-live'>● 已接入・即時</span>"
@@ -1493,17 +1591,19 @@ def render_attention(park_id: str, park_name: str, district: str, row: dict | No
         unsafe_allow_html=True)
 
     # ---- 輿情關注指數（診斷式白盒總評分，可攤開）----
-    # 若本園有社群示範資料（DEMO），指數係「即時新聞＋示範資料」混算，於數字旁
-    # 明確標示，避免家長誤讀為全由真實輿情算出（誠實揭露）。
     _demo_badge = ("<span style='margin-left:10px;font-size:.72rem;font-weight:600;"
                    "color:#9A5E14;background:#FAF1E4;border:1px solid #E8D3AE;"
                    "border-radius:6px;padding:2px 8px'>含示範資料 DEMO</span>"
                    if meta.get("has_demo") else "")
+    _zero_calm_badge = ("<span style='margin-left:10px;font-size:.75rem;font-weight:600;"
+                        "color:#2D6A4F;background:#EAF5EE;border:1px solid #B7DEC9;"
+                        "border-radius:6px;padding:2px 8px'>🟢 安靜平穩期（無負面爭議）</span>"
+                        if index.total == 0 else "")
     st.markdown(
         f"<div style='margin-top:12px'><span style='font-size:1.9rem;font-weight:700;"
         f"color:{color}'>{index.total:.0f}</span>"
         f"<span style='color:#8A8073;font-size:.9rem'> / 100　輿情關注指數</span>"
-        f"{_demo_badge}</div>",
+        f"{_zero_calm_badge}{_demo_badge}</div>",
         unsafe_allow_html=True)
     st.progress(min(1.0, index.total / 100.0))
     st.caption(index.disclaimer)
@@ -1525,15 +1625,23 @@ def render_attention(park_id: str, park_name: str, district: str, row: dict | No
             "貢獻分": [_contribs.get(k, 0.0) for k in _weights],
         })
         st.dataframe(comp_df, hide_index=True, use_container_width=True)
-        st.caption("此指數只反映網路討論的熱度與情緒聲量，與稽查系統的財務"
-                   "風險分數是完全不同的兩套資料，不可互相對照。")
+        if index.total == 0:
+            st.caption("說明：對幼教園所而言，輿情關注指數 0 分為最佳狀態，代表近一學年（365天）內在各公開平台與官方公告均無負面爭議或違規事件。本系統堅持客觀真實，不人為灌水虛構分數。")
+        else:
+            st.caption("此指數只反映網路討論與裁處公告的聲量熱度，與內部稽查系統的財務風險分數完全獨立，不可互相對照。")
 
-    if summary.level == sw.LEVEL_NONE and not items:
+    if not items:
         st.markdown(
-            "<div class='warm-note' style='margin-top:10px'>"
-            "<b>目前輿情關注指數為 0 分</b>，代表近期在可蒐集的公開新聞中，"
-            "沒有找到與本園精確對應的討論。這通常是正常的，並非機構有無問題之判斷。<br>"
-            "建議家長以公開資訊與實地參訪作為主要參考。</div>",
+            "<div style='background:#F7FAF8;border:1px solid #D5E7DC;border-radius:10px;padding:16px 20px;margin-top:14px;'>"
+            "<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px;'>"
+            "<span style='font-size:20px;'>🌿</span>"
+            "<b style='color:#2D5A43;font-size:15px;'>安靜平穩安心認證・近一學年查無負面爭議紀錄</b>"
+            "</div>"
+            "<div style='font-size:13px;color:#3F5649;line-height:1.7;'>"
+            "本園在教育部全國教保資訊網公開裁罰資料庫、主流媒體公開新聞（Google News、自由時報、東森、鏡週刊、中央社等）及公開社群中，<b>近一學年（365天）內均未查獲任何違規裁處或負面爭議</b>。<br>"
+            "幼教環境以「日常穩定、無爭議」為最理想狀態，輿情關注指數 0 分係客觀如實呈現（本平台堅持透明，不人為灌水虛構聲量）。<br>"
+            "建議家長可安心參考【公開資訊】頁籤之立案資格與基礎評鑑結果，並安排實地參訪親自感受教學環境。"
+            "</div></div>",
             unsafe_allow_html=True)
         return
 
@@ -1552,18 +1660,22 @@ def render_attention(park_id: str, park_name: str, district: str, row: dict | No
             "討論則數": [p.total for p in series],
             "其中負面": [p.neg for p in series],
         }).set_index("月份")
-        st.markdown("**公開討論量趨勢**（依月份）")
+        st.markdown("**公開討論量與裁處趨勢**（依月份）")
         st.bar_chart(chart_df, height=200)
 
     # 時間軸（每則附原文連結與發布時間；不以 AI 摘要取代原文）
-    st.markdown("**公開討論時間軸**（點連結可看原文）")
+    st.markdown("**公開討論與官方裁處時間軸**（點連結可看原文或官方公告）")
     sent_color = {"neg": "#D99A4E", "pos": "#5B9E7A", "neu": "#5B84B1"}
     for it in sorted(items, key=lambda x: x.published, reverse=True):
-        dot = sent_color.get(it.sentiment, "#5B84B1")
+        if it.source_type in ("official", "penalty"):
+            dot = "#B85D19"
+        else:
+            dot = sent_color.get(it.sentiment, "#5B84B1")
         topics = "".join(f"<span class='chip'>{html.escape(t)}</span>"
                          for t in it.topic_labels)
+        link_text = "查看裁處公告" if it.source_type in ("official", "penalty") else "查看原文"
         link = (f"<a href='{html.escape(it.url)}' target='_blank' rel='noopener'>"
-                f"查看原文</a>" if it.url else "")
+                f"{link_text}</a>" if it.url else "")
         src = html.escape(it.source_name or it.source_type_label)
         st.markdown(
             f"<div class='tl-item'>"

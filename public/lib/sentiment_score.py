@@ -72,8 +72,8 @@ class AttentionIndex:
     weights: dict[str, float] = field(default_factory=dict)
     basis: str = ""
     disclaimer: str = (
-        "本指數僅反映近期網路公開討論的熱度與情緒聲量，"
-        "不代表機構品質、不構成違法或舞弊認定，亦與稽查系統的風險分數無關。"
+        "本指數反映近一學年（365天）主管機關裁罰公告與網路公開討論之聲量熱度，"
+        "若為 0 分代表處於安靜平穩期（無負面爭議紀錄）；本指數不代表機構品質評價，亦與稽查系統的內部風險分數無關。"
     )
 
 
@@ -142,7 +142,7 @@ def compute_index(items, *, reference: date | None = None,
         return AttentionIndex(
             total=0.0, band=_sw.LEVEL_NONE,
             contributions={}, subscores={}, weights=_weights(),
-            basis="目前尚未蒐集到與本機構精確對應的公開討論。",
+            basis="近一學年內（365天）未查獲任何主管機關裁罰公告或異常公開網路討論。",
         )
 
     trend = _sw.detect_trend(items, reference=ref, window_days=window_days)

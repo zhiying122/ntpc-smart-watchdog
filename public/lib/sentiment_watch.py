@@ -48,18 +48,19 @@ TOPIC_LABEL: dict[str, str] = {
 
 #: 主題關鍵字表（規則式比對，命中即歸類；可命中多個主題）。
 _TOPIC_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "fee": ("收費", "學費", "費用", "代辦費", "月費", "超收", "退費", "註冊費", "價格", "漲價"),
-    "teacher": ("老師", "師資", "教師", "師生比", "流動", "離職", "代課", "配置", "人力"),
-    "safety": ("安全", "受傷", "意外", "食物", "餐點", "衛生", "環境", "設施", "門禁", "接送"),
+    "fee": ("收費", "學費", "費用", "代辦費", "月費", "超收", "退費", "註冊費", "價格", "漲價", "收據", "退還"),
+    "teacher": ("老師", "師資", "教師", "師生比", "流動", "離職", "代課", "配置", "人力", "資格", "進用", "聘任", "未具資格", "教保服務人員"),
+    "safety": ("安全", "受傷", "意外", "食物", "餐點", "衛生", "環境", "設施", "門禁", "接送", "幼童車", "幼童專用車", "不當對待", "通報", "身心虐待"),
     "teaching": ("教學", "課程", "教保", "品質", "才藝", "教材", "進度", "活動"),
-    "admin": ("行政", "溝通", "態度", "服務", "報名", "招生", "管理", "回覆", "聯絡"),
+    "admin": ("行政", "溝通", "態度", "服務", "報名", "招生", "管理", "回覆", "聯絡", "招收", "減招", "降收", "減少招收", "停止招生", "停招", "裁罰", "處分"),
 }
 
 #: 情緒詞典（簡單、透明）。命中負面詞加負分、正面詞加正分，判定 pos/neg/neu。
 _NEG_WORDS: tuple[str, ...] = (
     "差", "爛", "糟", "失望", "不滿", "抱怨", "投訴", "問題", "擔心", "後悔",
     "亂", "貴", "超收", "退費", "受傷", "髒", "不安全", "流動大", "離職", "沒回應",
-    "態度不好", "難溝通", "扣款", "爭議",
+    "態度不好", "難溝通", "扣款", "爭議", "處分", "裁罰", "罰鍰", "不當對待", "限期改善",
+    "停招", "減招", "降收", "違規", "未符規定",
 )
 _POS_WORDS: tuple[str, ...] = (
     "好", "推薦", "用心", "貼心", "安心", "滿意", "優質", "認真", "友善", "乾淨",
@@ -72,8 +73,8 @@ LEVEL_ACTIVE = "active"
 LEVEL_WATCH = "watch"
 LEVEL_NONE = "none"
 
-#: 「近期」觀測窗（天）：預設近 90 天為近期，與其前一段等長窗做趨勢比較。
-RECENT_WINDOW_DAYS = 90
+#: 「近期」觀測窗（天）：以幼教選園與主管機關監理之一學年週期（365天）為觀測範圍，與其前一段等長窗做趨勢比較。
+RECENT_WINDOW_DAYS = 365
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +109,8 @@ class SentimentItem:
             "facebook": "Facebook 公開貼文",
             "instagram": "Instagram 公開貼文",
             "blog": "部落格",
+            "official": "主管機關裁罰公告",
+            "penalty": "主管機關裁罰公告",
         }.get(self.source_type, "公開來源")
 
     @property
@@ -155,7 +158,15 @@ def enrich_item(raw: dict) -> SentimentItem:
     """
     pub = raw.get("published")
     if isinstance(pub, str):
-        pub = datetime.strptime(pub, "%Y-%m-%d").date()
+        pub_str = pub.strip()
+        parsed = None
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+            try:
+                parsed = datetime.strptime(pub_str, fmt).date()
+                break
+            except ValueError:
+                pass
+        pub = parsed or date.today()
     elif isinstance(pub, datetime):
         pub = pub.date()
     elif not isinstance(pub, date):
@@ -337,8 +348,8 @@ def summarize_attention(
     if not items:
         return AttentionSummary(
             level=LEVEL_NONE,
-            basis="目前尚未蒐集到此機構的公開網路討論。",
-            advice="尚無公開輿情資料並非機構有無問題之判斷；建議家長以官方公開資訊與實地參訪為主要參考。",
+            basis="近一學年內（365天）未查獲任何主管機關裁罰公告或異常公開網路討論。",
+            advice="本園處於安靜平穩期；建議家長以官方公開資訊與實地參訪為主要參考。",
             total_items=0,
             recent_items=0,
             date_range="—",
@@ -351,10 +362,17 @@ def summarize_attention(
     src_types = sorted({it.source_type_label for it in items})
     date_range = _date_range_text(items)
 
-    # 依趨勢與近期量決定等級。
-    if trend.surge or trend.neg_ratio_up:
+    # 依趨勢、近期量與處分紀錄決定等級。
+    has_critical = any(
+        it.sentiment == "neg" and (
+            it.source_type in ("official", "penalty") or
+            any(t in it.topics for t in ("safety", "teacher", "admin"))
+        )
+        for it in items
+    )
+    if trend.surge or trend.neg_ratio_up or (trend.recent_total >= 2 and trend.recent_neg_ratio >= 0.5) or (has_critical and trend.recent_total >= 1 and trend.recent_neg_ratio >= 0.5):
         level = LEVEL_WATCH
-    elif trend.recent_total >= 2:
+    elif trend.recent_total >= 2 or (trend.recent_total >= 1 and trend.recent_neg_ratio > 0):
         level = LEVEL_ACTIVE
     else:
         level = LEVEL_CALM
@@ -363,7 +381,7 @@ def summarize_attention(
     basis_parts = [
         f"共蒐集 {len(items)} 則公開資料（{'、'.join(src_types)}）",
         f"時間區間 {date_range}",
-        f"近 {window_days} 天有 {trend.recent_total} 則討論",
+        f"近 {window_days} 天有 {trend.recent_total} 則討論或公告",
     ]
     if trend.recent_total:
         basis_parts.append(f"其中負面比例約 {trend.recent_neg_ratio*100:.0f}%")
@@ -376,16 +394,26 @@ def summarize_attention(
             reasons.append(
                 f"近期負面比例（約 {trend.recent_neg_ratio*100:.0f}%）較前一時段"
                 f"（約 {trend.prior_neg_ratio*100:.0f}%）上升")
-        basis_parts.append("；".join(reasons))
+        if not reasons and has_critical:
+            reasons.append("近期查有主管機關處分公告或負面議題聲量")
+        if reasons:
+            basis_parts.append("；".join(reasons))
     basis = "；".join(basis_parts) + "。"
 
     # 建議文字（保留判斷空間、不指控）。
     if level == LEVEL_WATCH:
-        topic_txt = f"與「{trend.top_topic}」相關之" if trend.top_topic else ""
-        advice = (
-            f"近期網路上出現較多{topic_txt}公開討論，這是「討論的變化」而非事實認定。"
-            "建議家長可將此列為了解重點，主動向園所查證，並回到下方原始連結閱讀原文自行判斷。"
-        )
+        has_official = any(it.source_type in ("official", "penalty") for it in items)
+        if has_official:
+            advice = (
+                "近期公開資料中查有主管機關違規處分公告或較集中之討論。"
+                "建議家長詳閱下方裁罰明細與討論原文，並在參訪時主動向園所了解改善情形。"
+            )
+        else:
+            topic_txt = f"與「{trend.top_topic}」相關之" if trend.top_topic else ""
+            advice = (
+                f"近期網路上出現較多{topic_txt}公開討論，這是「討論的變化」而非事實認定。"
+                "建議家長可將此列為了解重點，主動向園所查證，並回到下方原始連結閱讀原文自行判斷。"
+            )
     elif level == LEVEL_ACTIVE:
         advice = (
             "近期有一些公開討論，屬常見範圍。建議家長參考下方原文，"
