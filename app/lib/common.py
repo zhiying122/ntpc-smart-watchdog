@@ -317,15 +317,22 @@ def city_trend_chart():
             hovertemplate="%{x} 學年｜園數 <b>%{y:,}</b> 間<extra></extra>",
         ), secondary_y=False)
 
-    _plotly_layout(fig, height=330)
+    _plotly_layout(fig, height=360)
     fig.update_layout(
-        margin=dict(l=54, r=54, t=44, b=46),
+        margin=dict(l=54, r=54, t=46, b=64),
         legend=dict(orientation="h", yanchor="bottom", y=1.03, xanchor="left", x=0,
                     font=dict(size=11, color=INK_2)),
     )
     fig.update_yaxes(title="園數（間）/ 教師數（人）", secondary_y=False, range=[0, 2600])
     fig.update_yaxes(title="幼生數（人）", secondary_y=True, range=[0, 100000])
-    fig.update_xaxes(title="學年度")
+    fig.update_xaxes(
+        title="學年度",
+        tickmode="array",
+        tickvals=years,
+        ticktext=[f"{y}學年" for y in years],
+        tickfont=dict(size=11, color=INK_2),
+        automargin=True,
+    )
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 
@@ -335,7 +342,12 @@ def roster_coverage():
     if r is None or len(r) == 0:
         return None
     n_total = len(r)
-    n_scored = int((r["data_status"] == "scored").sum())
+    # 與實際深度評分母體（latest.csv）嚴格對齊，確保上下 KPI 數字閉環
+    latest_df = load_latest()
+    if latest_df is not None and len(latest_df) > 0:
+        n_scored = len(latest_df)
+    else:
+        n_scored = int((r["data_status"] == "scored").sum())
     return {
         "total": n_total,
         "scored": n_scored,

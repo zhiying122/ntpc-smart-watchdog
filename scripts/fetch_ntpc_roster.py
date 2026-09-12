@@ -204,7 +204,7 @@ def build() -> pd.DataFrame:
                 "address": addr or prow.get("address", ""),
                 "tel": tel or prow.get("tel", ""),
                 "lat": lat, "lng": lng,
-                "data_status": "scored",
+                "data_status": "roster_only",
                 "risk_total": b_total,
                 "risk_level": b_level,
                 "scoring_profile": "behavioral",

@@ -1342,12 +1342,16 @@ def render_disclosure(row: dict):
         if isinstance(v, dict):
             return "　".join(f"{k}：{val}" for k, val in v.items())
         if isinstance(v, (list, tuple)):
-            return "；".join(str(x) for x in v)
+            return "\n".join(str(x) for x in v)
         return str(v)
 
     rows_html = []
     for f in fields:
-        val = html.escape(_fmt(f))
+        raw_val = _fmt(f)
+        lines = [html.escape(line) for line in raw_val.split("\n") if line.strip()]
+        if not lines:
+            lines = [pp.NO_PUBLIC_DATA_LABEL]
+        val_html = "<br>".join(lines)
         if f.has_data:
             meta = []
             if f.source_url:
@@ -1359,9 +1363,9 @@ def render_disclosure(row: dict):
                 meta.append(html.escape(f.source.authority))
             stale = (f"<span style='color:#B58A1E;font-weight:600;margin-left:8px'>"
                      f"注意：{html.escape(f.stale_notice)}</span>" if f.stale_notice else "")
-            cell = f"{val}{stale}<div class='meta'>{'　·　'.join(meta)}</div>"
+            cell = f"{val_html}{stale}<div class='meta'>{'　·　'.join(meta)}</div>"
         else:
-            cell = f"<span class='na'>{val}</span>"
+            cell = f"<span class='na'>{val_html}</span>"
         rows_html.append(f"<tr><td class='k'>{html.escape(f.label)}</td><td>{cell}</td></tr>")
     st.markdown("<table class='kv'>" + "".join(rows_html) + "</table>",
                 unsafe_allow_html=True)

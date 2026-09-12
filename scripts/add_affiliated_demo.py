@@ -47,7 +47,8 @@ AFFILIATED = [
 
 
 def main():
-    df = pd.read_csv(COMBINED)
+    base = COMBINED if COMBINED.exists() else (ROOT / "data" / "processed" / "financials.csv")
+    df = pd.read_csv(base)
     # 冪等：移除既有示範附幼列
     ids = {a["park_id"] for a in AFFILIATED}
     df = df[~df["park_id"].isin(ids)].copy()
