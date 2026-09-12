@@ -802,8 +802,10 @@ def build_markers(frame: pd.DataFrame) -> list[pmap.ParentMarker]:
     return markers
 
 
-# 只有在家長完成地址定位後才建立機構標記；未搜尋前地圖保持乾淨、不攤開全部機構。
-searched = home is not None
+# 顯示機構標記的條件：完成地址定位（home）「或」明確選了行政區。
+# 未做任何篩選時地圖保持乾淨、不攤開全部機構；一旦有明確查詢意圖（定位或選區）
+# 就建立標記，讓地圖與右側清單同步（修正「選了行政區但地圖沒變化」）。
+searched = (home is not None) or bool(sel_dist)
 markers = build_markers(work) if searched else []
 
 # park_id → 裁罰狀態短標籤（供右側清單即時顯示；輿情不在清單即時爬）。
@@ -861,13 +863,20 @@ with left:
     if searched:
         # 與右欄大數字焦點等高（96px），讓兩欄地圖／清單頂部對齊。
         _home_label = html.escape(str(home.get("label", "") or "")[:36]) if home else ""
+        # 地圖說明依情境：選了行政區以行政區為準；否則以定位的家為中心。
+        if sel_dist:
+            _map_desc = "顯示範圍：" + html.escape("、".join(sel_dist))
+        elif home:
+            _map_desc = f"以您輸入的位置為中心：{_home_label}"
+        else:
+            _map_desc = "依篩選條件顯示"
         st.markdown(
             "<div style='min-height:96px;box-sizing:border-box;display:flex;"
             "flex-direction:column;justify-content:flex-end;padding-bottom:6px'>"
             "<div style='font-family:var(--font-serif);font-weight:700;"
             "font-size:1.15rem;color:var(--ink-strong)'>附近機構地圖</div>"
             f"<div style='font-size:.78rem;color:var(--ink-dim);margin-top:4px'>"
-            f"以您輸入的位置為中心{('：' + _home_label) if _home_label else ''}</div>"
+            f"{_map_desc}</div>"
             "</div>",
             unsafe_allow_html=True)
     else:
@@ -876,7 +885,23 @@ with left:
             "font-size:1.15rem;color:var(--ink-strong);margin-bottom:8px'>"
             "先看看新北市的教保機構分布</div>",
             unsafe_allow_html=True)
-    if home:
+    # 地圖中心/縮放：優先「框住實際要顯示的機構」，讓地圖與清單同步。
+    # - 選了行政區（不論有無定位家）→ 以該區機構的座標範圍 fit_bounds。
+    # - 只定位家、未選區 → 以家為中心，依搜尋半徑決定 zoom。
+    # - 都沒有 → 新北市全域乾淨底圖。
+    _coords = [(m.lat, m.lng) for m in markers if m.has_coords]
+    _fit_bounds = None
+    if home and not sel_dist:
+        center = [home["lat"], home["lng"]]
+        zoom = {0.5: 15, 1.0: 14, 2.0: 13, 5.0: 12}.get(radius_km, 13)
+    elif _coords:
+        # 以機構座標的外接範圍置中（涵蓋所選行政區的全部機構）。
+        _lats = [c[0] for c in _coords]
+        _lngs = [c[1] for c in _coords]
+        center = [sum(_lats) / len(_lats), sum(_lngs) / len(_lngs)]
+        zoom = 13
+        _fit_bounds = [[min(_lats), min(_lngs)], [max(_lats), max(_lngs)]]
+    elif home:
         center = [home["lat"], home["lng"]]
         zoom = {0.5: 15, 1.0: 14, 2.0: 13, 5.0: 12}.get(radius_km, 13)
     else:
@@ -886,6 +911,8 @@ with left:
 
     fmap = folium.Map(location=center, zoom_start=zoom, tiles="OpenStreetMap",
                       control_scale=True)
+    if _fit_bounds is not None:
+        fmap.fit_bounds(_fit_bounds, padding=(20, 20))
 
     # 家的位置
     if home:
@@ -896,10 +923,13 @@ with left:
                               background_color=pmap.COLOR_HOME,
                               border_color=pmap.COLOR_HOME, text_color="#fff"),
         ).add_to(fmap)
-        folium.Circle(
-            location=[home["lat"], home["lng"]], radius=radius_km * 1000,
-            color=pmap.COLOR_HOME, weight=1, fill=True, fill_opacity=0.05,
-        ).add_to(fmap)
+        # 搜尋圈只在「以家為中心 + 未選行政區」時才畫；選了行政區時清單改以
+        # 行政區為準、不套距離半徑，畫圈會誤導。
+        if not sel_dist:
+            folium.Circle(
+                location=[home["lat"], home["lng"]], radius=radius_km * 1000,
+                color=pmap.COLOR_HOME, weight=1, fill=True, fill_opacity=0.05,
+            ).add_to(fmap)
 
     # 機構標記：著色與右側清單一致＝公開裁罰狀態（綠=無裁罰、暖琥珀=有/經標記裁罰），
     # 避免地圖全灰、且左右燈號語意同步。輿情關注度於點入機構後即時計算，不在地圖著色。
