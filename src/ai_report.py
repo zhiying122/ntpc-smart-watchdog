@@ -21,6 +21,17 @@ from dataclasses import dataclass, field
 
 
 # --------------------------------------------------------------------------
+# Bedrock 預設設定（競賽環境 AWS Workshop Studio）
+# --------------------------------------------------------------------------
+# 重要：競賽環境的 Claude 只支援 inference profile，model id 需帶 "us." 前綴，
+# 且模型部署於 us-west-2。這些預設值使「即使未設定環境變數 / 無 .env」時，
+# 仍能正確呼叫 Bedrock（避免退回舊 model id 導致 demo 當天走 fallback）。
+# 可經環境變數 BEDROCK_MODEL_ID / BEDROCK_REGION 覆寫。
+DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+DEFAULT_BEDROCK_REGION = "us-west-2"
+
+
+# --------------------------------------------------------------------------
 # 責任 AI 型別與負向約束（Responsible AI, R15/R19）
 # --------------------------------------------------------------------------
 
@@ -198,10 +209,10 @@ def generate_with_bedrock(row):
     client = boto3.client(
         "bedrock-runtime",
         region_name=os.environ.get("BEDROCK_REGION",
-                                   os.environ.get("AWS_DEFAULT_REGION", "us-east-1")),
+                                   os.environ.get("AWS_DEFAULT_REGION",
+                                                  DEFAULT_BEDROCK_REGION)),
     )
-    model_id = os.environ.get("BEDROCK_MODEL_ID",
-                              "anthropic.claude-3-sonnet-20240229-v1:0")
+    model_id = os.environ.get("BEDROCK_MODEL_ID", DEFAULT_BEDROCK_MODEL_ID)
     body = {
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": 600,
