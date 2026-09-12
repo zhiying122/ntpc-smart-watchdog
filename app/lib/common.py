@@ -845,7 +845,7 @@ NAV_GROUPS = [
     ("監理總覽",  ["主頁", "2_map"]),
     ("案件作業",  ["1_case", "5_dispatch"]),
     ("分析工具",  ["3_ai", "4_sentiment"]),
-    ("系統管理",  ["7_integration", "6_governance", "8_health", "9_public_preview"]),
+    ("系統管理",  ["7_integration", "6_governance", "8_health"]),
 ]
 # 以 key 快速取回完整 nav item（key -> (key, disp, icon, page)）。
 _NAV_BY_KEY = {item[0]: item for item in NAV_ALL}
