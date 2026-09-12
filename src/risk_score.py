@@ -200,7 +200,11 @@ def risk_level_by_group(df, score_col="risk_total", group_col="park_type",
 
     result = pd.Series(index=df.index, dtype="object")
     all_rank = df[score_col].rank(pct=True)
-    for _gval, idx in df.groupby(group_col).groups.items():
+    # 防禦：pandas groupby 預設丟棄 NaN 群組鍵，會使 park_type 為 NaN 的列
+    # 分級留空。以區域變數補「未分類」群組鍵（不改動原始 df），確保每一列
+    # 都被分級（目前資料源皆有非-NaN park_type，此為前瞻性防禦）。
+    group_keys = df[group_col].fillna("未分類")
+    for _gval, idx in df.groupby(group_keys).groups.items():
         sub = df.loc[idx, score_col]
         if len(sub) >= min_group:
             result.loc[idx] = risk_level_percentile(sub)

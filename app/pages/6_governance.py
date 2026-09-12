@@ -37,14 +37,15 @@ cols = st.columns(len(permissions.GOV_ROLES))
 for col, role in zip(cols, permissions.GOV_ROLES):
     perm = permissions.get_role_permissions(role)
     with col:
+        _desc = {
+            "政府管理者": "全轄區決策視角：風險總覽、地圖、派工、資料整合與治理。",
+            "稽查人員": "單一機構鑑識調查：案件工作台、證據鏈、AI 稽查助手。",
+        }.get(perm["name"], "")
         st.markdown(
             f"<div class='sw-panel'>"
-            f"<div style='font-size:1.6rem;'>{perm['emoji']}</div>"
-            f"<div style='font-weight:700;color:{common.INK};margin-top:4px;'>{perm['name']}</div>"
-            f"<div style='color:{common.INK_2};font-size:.82rem;margin-top:6px;'>"
-            f"可見資料類別：{len(perm['visible_categories'])} 類<br>"
-            f"可見頁面：{len(perm['navigation'])} 頁<br>"
-            f"全欄位可見：{'是' if perm['full_access'] else '否'}</div></div>",
+            f"<div style='font-weight:700;color:{common.INK};font-size:1rem;'>{perm['name']}</div>"
+            f"<div style='color:{common.INK_2};font-size:.84rem;margin-top:8px;"
+            f"line-height:1.6;'>{_desc}</div></div>",
             unsafe_allow_html=True,
         )
 

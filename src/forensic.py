@@ -20,13 +20,22 @@ BENFORD_EXPECTED = {d: math.log10(1 + 1 / d) for d in range(1, 10)}
 
 # ---------- 招式一：班佛定律 ----------
 def first_digit(n):
-    """取一個數的首位有效數字(1-9)。"""
+    """取一個數的首位有效數字(1-9)。
+
+    以字串取首位有效數字，避免 `while n<1: n*=10` 的浮點累積誤差
+    （接近整數的極小數如 0.9999999 會被截成 9）。對整數與小數皆正確。
+    """
     n = abs(n)
     if n == 0:
         return None
-    while n < 1:
-        n *= 10
-    return int(str(int(n))[0])
+    # 以最高精度字串表示，去除符號/小數點/前導零後取第一個非零數字。
+    s = repr(float(n))
+    for ch in s:
+        if ch in "123456789":
+            return int(ch)
+        if ch in ("e", "E"):  # 科學記號：尾數已在前面處理完
+            break
+    return None
 
 
 def benford_mad(numbers, min_n=10):
