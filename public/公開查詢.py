@@ -85,7 +85,9 @@ def load_public_dataset_cached() -> dict:
     回傳可序列化 dict：{df_records, penalty_index, is_live, fetched_at,
     attribution, note}。df 仍過家長權限投影做二次防禦，確保無任何內部風險欄位。
     """
-    pub = pdset.load_public_dataset(timeout=30)
+    # 家長端優先讀本地快照/快取（由 GitHub Actions 每日更新，夠新），確保頁面
+    # 秒開、Demo 不卡在「同步中」；即時抓網僅在無任何離線資料時作為後備。
+    pub = pdset.load_public_dataset(timeout=8, prefer_cache=True)
     # 二次防禦：即使來源只含公開欄位，仍過家長投影，保證無 risk_/score_ 外洩。
     safe_df = permissions.authorize_dataframe(pub.df, permissions.ROLE_PARENT) \
         if pub.df is not None and len(pub.df) else pub.df
@@ -702,10 +704,11 @@ with st.container(key="filter_card"):
     c1, c2 = st.columns([2.4, 1])
     with c1:
         address = st.text_input(
-            "輸入您家的地址",
-            placeholder="例如：新北市板橋區文化路一段",
-            help="請盡量填到「行政區＋路名」以提高定位準確度（例如：新北市板橋區文化路一段）。"
-                 "使用 OpenStreetMap 免費定位服務，不會儲存您的地址。",
+            "輸入您家的地址或機構名稱",
+            placeholder="例如：新北市板橋區文化路一段，或 新北市私立幼愛幼兒園",
+            help="可輸入住家地址（建議填到「行政區＋路名」），或直接輸入幼兒園名稱。"
+                 "輸入機構名稱會直接定位到該園並開啟其公開資訊；"
+                 "地址定位使用 OpenStreetMap 免費服務，不會儲存您的地址。",
         )
     with c2:
         radius_km = st.select_slider(
@@ -731,24 +734,59 @@ with st.container(key="filter_card"):
         do_search = st.button("定位並搜尋", type="primary", use_container_width=True,
                               key="search_btn")
 
-# 觸發定位
+# 依輸入字串比對機構名稱：回傳命中的機構列（Series）或 None。
+# 比對順序（由嚴到寬）：完全相符 → 唯一包含相符 → 去空白後唯一包含相符。
+# 多筆相符時回傳 None（交回地址定位，避免任意猜一間）。
+def _match_institution(query: str, frame: pd.DataFrame):
+    q = (query or "").strip()
+    if not q or "park_name" not in frame.columns:
+        return None
+    names = frame["park_name"].astype(str)
+    # 1) 完全相符（去前後空白）
+    exact = frame[names.str.strip() == q]
+    if len(exact) == 1:
+        return exact.iloc[0]
+    if len(exact) > 1:
+        return None
+    # 2) 包含相符（輸入為園名的一部分，或園名含輸入字串）
+    qn = q.replace(" ", "")
+    contains = frame[names.str.replace(" ", "", regex=False).str.contains(
+        qn, case=False, na=False) | names.apply(
+        lambda n: qn in str(n).replace(" ", ""))]
+    if len(contains) == 1:
+        return contains.iloc[0]
+    return None
+
+
+# 觸發定位（機構名稱優先，其次地址）
 if do_search and address.strip():
-    res = geocode_cached(address.strip())
-    if res["ok"]:
+    _inst = _match_institution(address, df)
+    if _inst is not None:
+        # 命中機構：以該園座標為中心、自動選定該園並開啟其公開資訊。
         st.session_state["home"] = {
-            "lat": res["lat"], "lng": res["lng"], "label": res["display_name"],
-            "notice": res.get("notice", "")}
-        st.session_state["selected_park_id"] = None
-        st.session_state["list_page"] = 1  # 重新定位＝新查詢，清單回到第 1 頁
-        # 誠實揭露實際定位到的地點，請家長自行確認（避免同名地點或門牌查無時的誤定位）。
-        _loc = str(res.get("display_name") or "").strip()
-        if _loc:
-            st.info(f"已定位到：{_loc}　·　請確認是否為您要的位置，如不正確請補上行政區與路名再查一次。")
-        if res.get("notice"):
-            st.info(res["notice"])
+            "lat": float(_inst["lat"]), "lng": float(_inst["lng"]),
+            "label": str(_inst["park_name"]), "notice": ""}
+        st.session_state["selected_park_id"] = str(_inst["park_id"])
+        st.session_state["list_page"] = 1
+        st.info(f"已定位到機構：{_inst['park_name']}（{_inst.get('district','')}）"
+                "　·　下方已開啟其公開資訊。")
     else:
-        st.session_state["home"] = None
-        st.warning(res["message"])
+        res = geocode_cached(address.strip())
+        if res["ok"]:
+            st.session_state["home"] = {
+                "lat": res["lat"], "lng": res["lng"], "label": res["display_name"],
+                "notice": res.get("notice", "")}
+            st.session_state["selected_park_id"] = None
+            st.session_state["list_page"] = 1  # 重新定位＝新查詢，清單回到第 1 頁
+            # 誠實揭露實際定位到的地點，請家長自行確認（避免同名地點或門牌查無時的誤定位）。
+            _loc = str(res.get("display_name") or "").strip()
+            if _loc:
+                st.info(f"已定位到：{_loc}　·　請確認是否為您要的位置，如不正確請補上行政區與路名再查一次。")
+            if res.get("notice"):
+                st.info(res["notice"])
+        else:
+            st.session_state["home"] = None
+            st.warning(res["message"] + "（若您要找的是幼兒園，可直接輸入園所名稱）")
 
 
 # ===========================================================================
