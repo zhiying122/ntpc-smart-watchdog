@@ -32,7 +32,12 @@ echo "==> 執行使用者：${RUN_USER}:${RUN_GROUP}"
 echo "==> 安裝系統相依套件…"
 if command -v dnf >/dev/null 2>&1; then
     # Amazon Linux 2023 / RHEL 系
-    sudo dnf install -y python3 python3-pip git tesseract tesseract-langpack-chi_tra || true
+    # 核心套件（一定要有）：python3 / pip / git。
+    sudo dnf install -y python3 python3-pip git || true
+    # tesseract（OCR，非必要）：AL2023 預設 repo 可能沒有此套件，逐個嘗試、
+    # 裝不到也不影響儀表板啟動（OCR 僅供非營利園掃描財報抽取，屬離線批次工具）。
+    sudo dnf install -y tesseract tesseract-langpack-chi_tra 2>/dev/null \
+        || echo "!! 略過 tesseract（此環境 repo 無此套件；OCR 為離線工具，不影響儀表板）。"
 elif command -v apt-get >/dev/null 2>&1; then
     # Ubuntu / Debian 系
     sudo apt-get update -y
