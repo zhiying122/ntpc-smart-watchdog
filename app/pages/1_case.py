@@ -230,7 +230,7 @@ with col_radar:
         font=dict(family="Inter, Noto Sans TC, Microsoft JhengHei"),
         height=380, margin=dict(l=50, r=50, t=50, b=36), paper_bgcolor="#FFFFFF",
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 with col_action:
     # 分項加權貢獻表：貢獻加總 == 總分（R5.2）。
@@ -280,7 +280,7 @@ if len(tl_vals) >= 1:
         xaxis=dict(title="年度"), showlegend=True,
         font=dict(family="Inter, Noto Sans TC, Microsoft JhengHei"),
     )
-    st.plotly_chart(tfig, width="stretch")
+    st.plotly_chart(tfig, use_container_width=True)
     if timeline_view.change_points:
         for cp in timeline_view.change_points:
             st.caption(f"變化點：{cp.trigger}")

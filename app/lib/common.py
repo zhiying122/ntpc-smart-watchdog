@@ -315,7 +315,7 @@ def city_trend_chart():
     fig.update_yaxes(title="園數 / 教師數", secondary_y=False)
     fig.update_yaxes(title="幼生數", secondary_y=True)
     fig.update_xaxes(title="學年度")
-    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 
 def roster_coverage():
@@ -1675,7 +1675,7 @@ def risk_distribution_interactive(counts_by_level, total):
     _plotly_layout(fig, height=220)
     fig.update_xaxes(title=None, range=[0, max(ns) * 1.25 if ns and max(ns) else 1])
     fig.update_yaxes(autorange="reversed")
-    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 
 def risk_composition_by_district(df, top_n=12):
@@ -1712,7 +1712,7 @@ def risk_composition_by_district(df, top_n=12):
     fig.update_layout(barmode="stack")
     _plotly_layout(fig, height=320)
     fig.update_yaxes(title="平均風險分（分項貢獻堆疊）")
-    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 
 def risk_trend_chart(full_df, park_name):
@@ -1756,7 +1756,7 @@ def risk_trend_chart(full_df, park_name):
     _plotly_layout(fig, height=340)
     fig.update_yaxes(title="分項貢獻", secondary_y=False)
     fig.update_yaxes(title="總風險分", secondary_y=True, range=[0, 100])
-    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 
 def validation_panel(df):
@@ -1815,7 +1815,7 @@ def validation_panel(df):
                    title="系統判定高風險分組 vs 對照組：官方裁罰率對比")
     fig.update_yaxes(title="曾被官方裁罰的園占比 (%)",
                      range=[0, max(rates) * 1.3 if max(rates) else 1])
-    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
     # ---- 結論與權重依據 ----
     st.markdown(
