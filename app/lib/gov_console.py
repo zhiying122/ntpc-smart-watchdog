@@ -93,6 +93,19 @@ def _is_missing(v: object) -> bool:
         return False
 
 
+def _is_high(level_val: object, score: float) -> bool:
+    """判定單列是否為「高風險」，全站一致的單一判準。
+
+    優先採用契約檔既有的 `risk_level`（百分位分級，與 KPI 帶、排名、地圖
+    著色同源）；僅當該值缺失或非三級標籤時，才退回以 `grade()` 絕對門檻
+    （>=70）由分數即時判定。此舉消除同頁「KPI 用百分位、熱點/行政區排名用
+    絕對門檻」導致的高風險計數矛盾（例如 KPI 顯示高風險 N 間，但熱點卻為 0）。
+    """
+    if level_val is not None and str(level_val) in (LEVEL_HIGH, LEVEL_MID, LEVEL_LOW):
+        return str(level_val) == LEVEL_HIGH
+    return grade(score) == LEVEL_HIGH
+
+
 # ---------------------------------------------------------------------------
 # KPI 計數（R2.3, Property 6）
 # ---------------------------------------------------------------------------
@@ -229,7 +242,8 @@ class InstitutionRank:
 
 
 def district_risk_ranking(df, score_col: str = "risk_total",
-                          district_col: str = "district") -> list[DistrictRank]:
+                          district_col: str = "district",
+                          level_col: str = "risk_level") -> list[DistrictRank]:
     """各行政區依平均風險分由高至低排序的風險排名（R2.5, Property 8）。
 
     僅納入有有效風險分數（非缺失）的機構參與聚合；無有效機構的行政區不列入。
@@ -254,9 +268,13 @@ def district_risk_ranking(df, score_col: str = "risk_total",
         return []
 
     # 聚合：district -> (scores list, high_count)
+    # 高風險判定與 KPI/排名/地圖同源：優先用既有 risk_level（百分位），
+    # 缺則以 grade() 絕對門檻 fallback（見 _is_high）。
+    has_level = level_col in cols
     buckets: dict[str, list[float]] = {}
     highs: dict[str, int] = {}
-    for _, row in df[[district_col, score_col]].iterrows():
+    agg_cols = [district_col, score_col] + ([level_col] if has_level else [])
+    for _, row in df[agg_cols].iterrows():
         d = row[district_col]
         s = row[score_col]
         if _is_missing(d) or _is_missing(s):
@@ -264,7 +282,8 @@ def district_risk_ranking(df, score_col: str = "risk_total",
         d = str(d)
         s = float(s)
         buckets.setdefault(d, []).append(s)
-        if grade(s) == LEVEL_HIGH:
+        lvl = row[level_col] if has_level else None
+        if _is_high(lvl, s):
             highs[d] = highs.get(d, 0) + 1
 
     ranks: list[DistrictRank] = []
@@ -352,7 +371,8 @@ class TrendPoint:
 
 
 def risk_trend(full_df, score_col: str = "risk_total",
-               year_col: str = "year", years: int = 3) -> list[TrendPoint]:
+               year_col: str = "year", years: int = 3,
+               level_col: str = "risk_level") -> list[TrendPoint]:
     """近 `years` 個年度的風險趨勢，依年度由舊到新排序（R2.7）。
 
     以每園每年一列的 `kindergartens.csv`（full_df）為輸入，取最近 `years`
@@ -378,9 +398,11 @@ def risk_trend(full_df, score_col: str = "risk_total",
     if full_df is None or score_col not in cols or year_col not in cols:
         return []
 
+    has_level = level_col in cols
     per_year: dict[int, list[float]] = {}
     per_year_high: dict[int, int] = {}
-    for _, row in full_df[[year_col, score_col]].iterrows():
+    trend_cols = [year_col, score_col] + ([level_col] if has_level else [])
+    for _, row in full_df[trend_cols].iterrows():
         y = row[year_col]
         s = row[score_col]
         if _is_missing(y) or _is_missing(s):
@@ -391,7 +413,8 @@ def risk_trend(full_df, score_col: str = "risk_total",
             continue
         s = float(s)
         per_year.setdefault(yi, []).append(s)
-        if grade(s) == LEVEL_HIGH:
+        lvl = row[level_col] if has_level else None
+        if _is_high(lvl, s):
             per_year_high[yi] = per_year_high.get(yi, 0) + 1
 
     if not per_year:
@@ -431,9 +454,10 @@ def risk_hotspots(df, score_col: str = "risk_total",
                   top: int = 5) -> list[Hotspot]:
     """風險熱點區域：依高風險機構數由多至少排序的行政區（R2.8）。
 
-    以行政區為單位聚合高風險（>= 70）機構數作為熱度，依（高風險數 desc、
-    高風險占比 desc、行政區名 asc）確定性排序，取前 `top` 個作為熱點。
-    僅列有至少一間高風險機構的行政區。
+    以行政區為單位聚合高風險機構數作為熱度（高風險判定與 KPI/排名同源：
+    優先用 risk_level 百分位分級，缺則以 grade() 絕對門檻 fallback，見
+    _is_high），依（高風險數 desc、高風險占比 desc、行政區名 asc）確定性
+    排序，取前 `top` 個作為熱點。僅列有至少一間高風險機構的行政區。
 
     參數
     ----

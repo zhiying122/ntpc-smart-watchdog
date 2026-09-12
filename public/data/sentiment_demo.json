@@ -1,0 +1,134 @@
+{
+  "_meta": {
+    "notice": "本檔為『公開輿情觀測』的示範資料（DEMO），涵蓋 Google 評論／Facebook／Instagram／部落格／公開論壇等多來源樣本，用於展示時間序列分級、輿情關注指數與依據呈現方式，非真實輿情，亦非對任何機構之事實認定。新聞由系統即時蒐集公開新聞報導；上述社群與評論來源於正式版需透過各平台官方 API 授權接入，且不蒐集需登入才可見之內容。",
+    "compliance": "僅示範公開來源；每則保留原始來源型別、發布時間與可回溯連結，家長可回原文自行判斷。新聞為即時蒐集，已盡力以園名與行政區精確比對。",
+    "reference_date": "2026-09-12",
+    "window_days": 90
+  },
+  "institutions": {
+    "13616": {
+      "park_name": "新北市立林口幼兒園",
+      "is_demo": true,
+      "items": [
+        {
+          "source_type": "news",
+          "source_name": "示範新聞來源",
+          "title": "林口地區幼兒園收費說明會 家長關心代辦費項目",
+          "excerpt": "說明會中有家長針對代辦費與退費方式提出詢問，園方表示將依主管機關公告辦理。",
+          "url": "https://news.google.com/search?q=林口幼兒園收費",
+          "published": "2025-11-18"
+        },
+        {
+          "source_type": "review",
+          "source_name": "公開評論頁（示範）",
+          "title": "環境整潔、老師友善",
+          "excerpt": "整體環境乾淨，老師很用心，孩子上學很開心，推薦。",
+          "url": "https://www.google.com/maps/search/林口幼兒園",
+          "published": "2026-01-09"
+        },
+        {
+          "source_type": "review",
+          "source_name": "公開評論頁（示範）",
+          "title": "師資流動的觀察",
+          "excerpt": "這學期換了幾位老師，家長間有討論師資流動的情形，希望園方多說明。",
+          "url": "https://www.google.com/maps/search/林口幼兒園",
+          "published": "2026-06-21"
+        },
+        {
+          "source_type": "forum",
+          "source_name": "公開論壇（示範）",
+          "title": "請問大家對這間的收費怎麼看",
+          "excerpt": "最近看到有人討論收費項目，想問問其他家長的看法，會不會覺得偏貴？",
+          "url": "https://www.mobile01.com/topicdetail.php",
+          "published": "2026-07-15"
+        },
+        {
+          "source_type": "news",
+          "source_name": "示範新聞來源",
+          "title": "教育局說明幼兒園收退費規定 提醒家長留意契約內容",
+          "excerpt": "教育局重申收退費應依規定與契約辦理，並提供家長申訴管道；未針對特定園所作出認定。",
+          "url": "https://news.google.com/search?q=幼兒園收退費規定",
+          "published": "2026-07-28"
+        },
+        {
+          "source_type": "review",
+          "source_name": "公開評論頁（示範）",
+          "title": "收費項目希望更清楚",
+          "excerpt": "覺得部分費用項目說明可以再清楚一點，跟園方溝通後有得到回覆。",
+          "url": "https://www.google.com/maps/search/林口幼兒園",
+          "published": "2026-08-05"
+        },
+        {
+          "source_type": "forum",
+          "source_name": "公開論壇（示範）",
+          "title": "代辦費爭議討論串",
+          "excerpt": "有家長分享代辦費的疑問，串上不少人回覆自己的經驗，意見兩極。",
+          "url": "https://www.mobile01.com/topicdetail.php",
+          "published": "2026-08-19"
+        },
+        {
+          "source_type": "review",
+          "source_name": "Google 評論（示範）",
+          "title": "退費流程的抱怨",
+          "excerpt": "辦理退費時覺得流程有點複雜，希望能更順暢，其他方面還可以。",
+          "url": "https://www.google.com/maps/search/林口幼兒園",
+          "published": "2026-08-30"
+        },
+        {
+          "source_type": "facebook",
+          "source_name": "Facebook 公開社團（示範）",
+          "title": "林口地區育兒交流：收費討論",
+          "excerpt": "公開社團有家長討論收費項目，回覆意見不一，建議大家實際問園方最準。",
+          "url": "https://www.facebook.com/",
+          "published": "2026-08-22"
+        },
+        {
+          "source_type": "instagram",
+          "source_name": "Instagram 公開貼文（示範）",
+          "title": "分享今天的親子活動",
+          "excerpt": "帶孩子參加園所活動，現場布置很用心，拍了幾張分享給大家。",
+          "url": "https://www.instagram.com/",
+          "published": "2026-07-30"
+        },
+        {
+          "source_type": "blog",
+          "source_name": "育兒部落格（示範）",
+          "title": "選幼兒園的心得：收費與師資怎麼看",
+          "excerpt": "整理了幾個評估面向，收費透明度與師資穩定度是我最在意的兩點。",
+          "url": "https://example-parenting-blog.tw/post/kindergarten",
+          "published": "2026-06-28"
+        }
+      ]
+    },
+    "13603": {
+      "park_name": "新北市立中和幼兒園",
+      "is_demo": true,
+      "items": [
+        {
+          "source_type": "review",
+          "source_name": "公開評論頁（示範）",
+          "title": "老師很用心",
+          "excerpt": "老師認真又貼心，孩子每天都很期待上學，環境也乾淨。",
+          "url": "https://www.google.com/maps/search/中和幼兒園",
+          "published": "2026-05-12"
+        },
+        {
+          "source_type": "review",
+          "source_name": "公開評論頁（示範）",
+          "title": "整體滿意",
+          "excerpt": "課程安排豐富，行政溝通也很順暢，整體很滿意。",
+          "url": "https://www.google.com/maps/search/中和幼兒園",
+          "published": "2026-08-02"
+        },
+        {
+          "source_type": "news",
+          "source_name": "示範新聞來源",
+          "title": "中和區公立幼兒園辦理親子活動",
+          "excerpt": "園方於暑期辦理親子共學活動，家長參與踴躍，反應良好。",
+          "url": "https://news.google.com/search?q=中和幼兒園親子活動",
+          "published": "2026-08-16"
+        }
+      ]
+    }
+  }
+}

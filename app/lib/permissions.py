@@ -162,6 +162,14 @@ _PARENT_CSV_EXTRA_FIELDS: frozenset[str] = frozenset({
     "tuition_actual",  # 公開收費（實際）；CSV 實際欄位
     "eval_grade",      # 公開評鑑等第；CSV 實際欄位
     "year",            # 年度（識別用，非分數）
+    "lat",             # 機構座標（緯度）：公開地址之地理衍生，非風險欄位，供公眾查詢網地圖
+    "lng",             # 機構座標（經度）：同上
+    # 裁罰紀錄為公開揭露資訊（非內部風險分數），家長本得知悉；供公眾查詢網呈現。
+    # 注意：這是「裁罰事實」（次數/原因/類別），與內部 score_penalty（裁罰「評分」）
+    # 不同——後者仍屬風險分項、由黑名單擋除，不會外洩。
+    "penalty_count",     # 裁罰次數（公開事實）
+    "penalty_reason",    # 裁罰原因（公開事實）
+    "penalty_category",  # 裁罰類別（公開事實）
 })
 _PARENT_PUBLIC_FIELDS: frozenset[str] = frozenset(
     getattr(modes, "PUBLIC_WHITELIST_FIELDS", frozenset())
@@ -210,7 +218,6 @@ _FULL_RISK_FIELDS: frozenset[str] = frozenset({
     "benford_pvalue", "benford_significant",
     "beneish_score", "beneish_egdi", "beneish_tata",
     "iforest_score", "iforest_explain", "expense_yoy_pct",
-    "penalty_count", "lat", "lng",
 })
 
 
