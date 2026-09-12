@@ -1,0 +1,48 @@
+name: 部署到 EC2（push 後自動更新）
+
+# push 到 main（或手動觸發）時，在 EC2 上的 self-hosted runner 直接重新部署：
+# 拉最新程式碼 → 重裝依賴 → 重啟 systemd 服務（watchdog-gov :8601 / watchdog-public :8602）。
+#
+# 前置：EC2 那台 Linux 機器已依 docs/github-actions-deploy.md 安裝並常駐 self-hosted runner，
+#       且該 runner 帶有標籤 self-hosted。runner 使用者需有 sudo 權限（setup 腳本會用到 sudo）。
+
+on:
+  push:
+    branches: [main]
+    # 只改到文件/spec 時不重部署，省時（可依需要增減）。
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".kiro/**"
+  workflow_dispatch: {}   # 允許在 Actions 頁面手動觸發重部署
+
+# 同一時間只跑一個部署，避免兩個 job 同時重啟服務打架。
+concurrency:
+  group: deploy-ec2
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # 跑在 EC2 上的自架 runner（不是 GitHub 雲端 runner）。
+    runs-on: self-hosted
+    timeout-minutes: 20
+    steps:
+      - name: 取出最新程式碼
+        uses: actions/checkout@v4
+
+      - name: 部署（重裝依賴 + 重啟服務）
+        # setup_ec2.sh 冪等：git pull（此處已由 checkout 取得最新）＋建 venv＋
+        # pip install＋render systemd＋restart。直接呼叫即可完成部署。
+        run: bash deploy/setup_ec2.sh
+
+      - name: 健康檢查（服務是否起得來）
+        # 服務重啟後給幾秒暖機，再確認兩個埠都回應。
+        run: |
+          sleep 8
+          echo "== watchdog-gov 狀態 =="
+          sudo systemctl is-active watchdog-gov.service || (sudo journalctl -u watchdog-gov -n 40 --no-pager; exit 1)
+          echo "== watchdog-public 狀態 =="
+          sudo systemctl is-active watchdog-public.service || (sudo journalctl -u watchdog-public -n 40 --no-pager; exit 1)
+          echo "== 埠回應檢查 =="
+          curl -fsS -o /dev/null -w "8601 -> HTTP %{http_code}\n" http://localhost:8601 || echo "!! 8601 尚未回應（可能仍在暖機）"
+          curl -fsS -o /dev/null -w "8602 -> HTTP %{http_code}\n" http://localhost:8602 || echo "!! 8602 尚未回應（可能仍在暖機）"
