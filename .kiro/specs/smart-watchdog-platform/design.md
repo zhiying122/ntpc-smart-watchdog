@@ -26,12 +26,32 @@
 
 設計以 P0 需求為「可 Demo 骨幹」，P1 為加分延伸，P2 以文件交付。既有 `kindergartens_latest.csv` / `kindergartens.csv` 契約檔維持不變，作為三種使用者介面的共同資料源，確保現有 Streamlit 頁面不被破壞。
 
+### 機構涵蓋範圍與雙評分檔（R26，設計層對齊）
+
+**已驗證事實：** 掃描競賽提供之公校決算書 112/113/114 年度全五冊，確認獨立財務餘絀表僅涵蓋約 21–22 間獨立設置之市立幼兒園（園編號 136xx）；國小附設幼兒園之財務併入母校決算、於決算書層級無獨立揭露（`附設幼兒園` 字樣僅零星出現於裁撤／政策附註）。系統目前涵蓋 66 間有財報之園（公校 28 + 非營利 38），已窮盡決算書可抽範圍。
+
+**雙評分檔設計：** 為將涵蓋延伸至無財報之附設幼兒園，系統為每間機構指派 `scoring_profile ∈ {forensic, behavioral}`：
+
+| 分項 | 財務鑑識園 forensic（有決算）| 行為監測園 behavioral（附幼，無決算）|
+|------|------|------|
+| 財務異常 | 0.40 | 不適用（標記 N/A，不以 0 或佔位放大／壓低）|
+| 裁罰（含破窗加權）| 0.30 | 0.50 |
+| 評鑑 | 0.15 | 0.30 |
+| 輿情 | 0.15 | 0.20 |
+| 合計 | 1.0 | 1.0 |
+
+行為監測園將財務之 0.40 權重按學理依據重分配至裁罰／評鑑／輿情（嚴重度加權法 + 評鑑品質—違規負相關實證）。兩類園之總分皆維持 0–100 與四級等級映射，輿情分項貢獻上限仍受 15 分約束（R10.8, R26.7）。每間機構於風險呈現併同標示評分檔別與（行為監測園）「無獨立財報，僅基於合規／評鑑／輿情」揭露訊息（R26.5, R26.6）。三分項皆無真實資料之行為監測園以中性處理並降低可信度、標示「可用資料不足以評估」（R26.8, 對齊 R18.2）。
+
+**學理依據（可辯護性，內容已改寫以符合授權限制）：** 差異化監測／關鍵指標法（HHS/ACF）、合規計分序位化理論（Fiene 2019）、風險基礎稽查 RBI、評鑑品質—違規負相關實證（ACF 2024）、嚴重違規預定義清單（Wisconsin DCF）。詳見 requirements.md R26 之引用連結。
+
+**資料前提：** 行為監測園需附幼名單／裁罰／評鑑資料，來源為全國教保資訊網（題目允許之自蒐公開資料）。此為事前擷取快照，非 Demo 現場即時爬取；快照結果標示為抽樣／快照示範並聲明可規模化（R26.10）。是否納入附幼待主辦方確認範圍後再行實作資料接取，本設計先建立評分檔機制與介面。
+
 ### 需求覆蓋對照
 
 | 分類 | 需求 | 設計落點 |
 |------|------|----------|
 | 使用者模式 | R1, R2, R5, R6 | 使用者模式與三入口（Gov/Inspector/Parent）|
-| 風險引擎 | R7, R8, R10, R12, R13, R18, R25 | Risk Engine（延伸 forensic.py / risk_score.py）+ 人事勾稽 + 破窗效應累犯加權 |
+| 風險引擎 | R7, R8, R10, R12, R13, R18, R25, R26 | Risk Engine（延伸 forensic.py / risk_score.py）+ 人事勾稽 + 破窗效應累犯加權 + 雙評分檔（財務鑑識／行為監測）|
 | 可解釋與證據 | R11, R14, R19 | Evidence Chain + Knowledge Graph + Responsible AI |
 | AI 助手 | R15 | AI Copilot（延伸 ai_report.py）|
 | NLP | R9 | NLP Engine |
@@ -191,12 +211,31 @@ def consolidate(results: list[AnomalyMethodResult]) -> ConsolidatedAnomaly:
 由既有三分項擴充為四頂層分項白盒加權：**財務異常 0.40 + 裁罰（含破窗效應累犯加權）0.30 + 評鑑 0.15 + 輿情 0.15**（合計 1.0，R10.7）。保留 `risk_level_percentile`、`risk_level_absolute`、`build`。強化：分項貢獻明細（R10.3）、缺資料以中性值處理不放大（R10.5, R18.2）、風險不等於違法標示（R10.4, R19.4）、輿情分項貢獻上限 15 分（R10.8）、示範估算標示（R10.9, R9.10）。
 
 ```python
+def resolve_scoring_profile(entity: EntityData) -> str:
+    """回傳 'forensic' 或 'behavioral' (R26.1)。
+    具可用獨立財務決算 → 'forensic'，否則 → 'behavioral'。
+    確定性：資料狀態不變時同一機構恆得相同評分檔 (R26.9)。"""
+
 def score(entity: EntityData, weights: Weights, confidence: float) -> RiskBreakdown:
-    """輸出 total(0-100) + 四分項貢獻明細(financial/penalty/eval/sentiment) + level。
+    """輸出 total(0-100) + 分項貢獻明細 + level + scoring_profile。
+    依評分檔套用權重 (R26.2, R26.3)：
+      forensic  → financial 0.40 / penalty 0.30 / eval 0.15 / sentiment 0.15
+      behavioral→ penalty 0.50 / eval 0.30 / sentiment 0.20；financial 標記 'N/A'
+                  且不以 0/佔位計入而放大或壓低風險 (R26.3)。
     加權後分項總和 == total (R5.2)。裁罰分項納入 Broken_Window_Score (R25.7)。
-    輿情分項貢獻 clamp 至 <= 15，確保單一輿情訊號不獨力推入高風險 (R10.8)。
+    輿情分項貢獻 clamp 至 <= 15（兩種評分檔皆適用，R10.8, R26.7）。
     缺資料分項以中性值代入(R10.5)；低可信度不得單獨推高(R18.2)；
-    輿情來自抽樣示範時於明細標示 demo_estimate (R10.9)。"""
+    behavioral 三分項皆無真實資料 → 中性處理不判高風險 + 降可信度 + 標示
+    '可用資料不足以評估' (R26.8)；輿情來自抽樣示範時標示 demo_estimate (R10.9)。"""
+```
+
+**評分檔權重表（設定值，供 Risk_Scorer 依 `scoring_profile` 選取）：**
+
+```python
+PROFILE_WEIGHTS = {
+    "forensic":   {"financial": 0.40, "penalty": 0.30, "eval": 0.15, "sentiment": 0.15},
+    "behavioral": {"financial": None, "penalty": 0.50, "eval": 0.30, "sentiment": 0.20},
+}
 ```
 
 `RiskBreakdown.contributions` 為 `dict[str, float]`，`sum(contributions.values()) == total`（供雷達圖與可解釋展示，R5.2, R10.3）。既有 financial 0.50 / penalty 0.34 / eval 0.16 權重更新為四分項版本，並於 `common.py` 契約以附加欄位承接輿情分數，不破壞既有頁面載入。
@@ -403,9 +442,12 @@ class RiskBreakdown:
     level: str                   # 低/中/高/極高
     contributions: dict[str, float]  # financial/penalty/eval/(sentiment)
     weights: dict[str, float]    # 顯示用權重
+    scoring_profile: str         # 'forensic' | 'behavioral' (R26.1, R26.5)
+    profile_notice: str | None   # 行為監測園「無獨立財報…」揭露訊息 (R26.6)
     not_illegality_notice: str   # 風險≠違法 (R10.4, R19.4)
     data_confidence: float       # (R18.3)
     # 不變式：round(sum(contributions.values()),1) == total
+    # behavioral 檔：contributions 不含 financial（或標記 N/A 且不計入總和）
 ```
 
 ### EvidenceChain / KnowledgeGraph（R11, R14）
@@ -783,6 +825,12 @@ class DataConfidence:
 
 **Validates: Requirements 10.7, 10.8**
 
+### Property 49: 雙評分檔權重、範圍與確定性
+
+*For any* 機構，評分檔別必為 forensic 或 behavioral 二者之一，且指派為確定性（資料狀態不變時重複計算結果相同）；forensic 檔套用權重 {財務 0.40, 裁罰 0.30, 評鑑 0.15, 輿情 0.15}、behavioral 檔套用權重 {裁罰 0.50, 評鑑 0.30, 輿情 0.20} 且不含財務分項，兩檔權重合計皆為 1.0；兩檔之風險總分皆介於 0 至 100，輿情分項貢獻皆不超過 15 分。
+
+**Validates: Requirements 26.1, 26.2, 26.3, 26.4, 26.7, 26.9**
+
 ---
 
 ## Error Handling
@@ -848,6 +896,7 @@ class DataConfidence:
   - 財務物件 round-trip 產生器涵蓋特殊字元、編碼、空欄位（解析器附註）。
   - 分派 N 的無效值（0、負、>1000、非整數）與有效邊界（1、1000）（R3.9）。
   - 資料時效邊界（恰 365 天、366 天）（R6.4）。
+  - 評分檔情境（R26）：有財報園（forensic）、無財報附幼（behavioral）、behavioral 三分項全缺資料（R26.8）；驗證權重合計為 1.0、總分落於 0–100、輿情上限 15。
 - **重點屬性**：Property 39（財務文件解析往返一致）為解析器/序列化器的必備 round-trip 測試；Property 9/10（分派最佳化）對小輸入以暴力法作為 model-based 參考實作驗證最佳性與 tie-break。
 
 ### 單元測試（Unit Tests）

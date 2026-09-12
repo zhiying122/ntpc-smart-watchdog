@@ -32,7 +32,7 @@
 | 優先級 | 定義 | 對應需求 |
 |--------|------|----------|
 | **P0（決賽決勝，必做可 Demo）** | 決賽現場展示的核心體驗，多數已有基線可延伸 | R1、R2、R5、R7、R8、R10、R11、R12、R13、R15、R19、R23 |
-| **P1（加分，時間允許則做）** | 顯著提升說服力但非展示成敗關鍵 | R3、R4、R6、R9、R14、R16、R17、R18、R20、R21 |
+| **P1（加分，時間允許則做）** | 顯著提升說服力但非展示成敗關鍵 | R3、R4、R6、R9、R14、R16、R17、R18、R20、R21、R26 |
 | **P2（未來擴展／文件為主）** | 以計畫書、架構圖、藍圖形式交付，非執行程式碼 | R22、R24 |
 
 「延伸現有」與「淨新增」於每則需求標題後標示：**[延伸現有]** 代表建立於 `src/` 或 `app/` 既有程式碼之上；**[淨新增]** 代表全新能力。
@@ -75,6 +75,9 @@
 - **Weak_Signal**：輿情微弱訊號，指重大事件爆發前於家長／社群文本中出現的早期警訊（如師資頻繁更換、幼兒抗拒上學、監視設備異常）。
 - **Broken_Window_Score**：破窗效應累犯加權分數，依違規嚴重度、時效衰減與頻率放大計算的裁罰分項組成。
 - **Personnel_Affordability_Ratio**：人事費可負擔性比率，交叉勾稽登記教職員數應有人事支出與決算實際人事費的鑑識會計指標。
+- **Scoring_Profile**：評分檔，機構的風險評分模式，分為「財務鑑識園（forensic，具獨立財務決算，套用四分項權重）」與「行為監測園（behavioral，無獨立財報，套用裁罰／評鑑／輿情權重）」兩類。
+- **Forensic_Institution**：財務鑑識園，具備可用獨立財務決算之機構（如獨立設置之市立幼兒園、非營利園）。
+- **Behavioral_Institution**：行為監測園，無獨立財報之機構（如國小附設幼兒園），以合規、評鑑與輿情面向評分。
 
 ---
 
@@ -468,6 +471,29 @@
 7. THE Risk_Engine SHALL 將破窗效應累犯加權分數作為裁罰分項的組成之一併入混合風險評分，且不改變裁罰分項於總分中的既定權重。
 8. IF 某違規紀錄缺少可辨識的違規類型或發生日期，THEN THE Risk_Engine SHALL 將該筆標記為待人工確認並排除於破窗效應累犯加權分數計算之外，且不中斷其餘違規紀錄的計算。
 9. THE Risk_Engine SHALL 使相同的違規紀錄輸入永遠產生相同的破窗效應累犯加權分數（確定性）。
+
+---
+
+### Requirement 26: 機構涵蓋範圍與雙評分檔（財務鑑識園 vs 行為監測園）[淨新增] (P1)
+
+**User Story:** 作為系統設計者，我想要在有財務決算的獨立市立幼兒園之外，也涵蓋無獨立財報的國小附設幼兒園，並以有學理依據的「行為—品質」評分檔為其計算可解釋風險分數，讓稽查涵蓋不再受限於有無財報，同時誠實揭露每間機構所用的評分方法。
+
+**背景事實（已實地驗證，供可辯護性）：** 經掃描競賽提供之公校決算書 112/113/114 年度全五冊，確認「基金來源、用途及餘絀表」僅涵蓋約 21–22 間獨立設置之市立幼兒園（園編號 136xx）；「附設幼兒園」字樣僅零星出現於裁撤／政策附註文字，國小附設幼兒園之財務併入母校決算、於決算書層級無獨立揭露。因此財務鑑識會計（班佛、比率勾稽、Beneish）僅適用於有獨立決算之園；附設幼兒園須改以合規紀錄與品質評鑑為基礎評分。
+
+**學理依據（供設計與簡報引用，內容已改寫以符合授權限制）：** 差異化監測與關鍵指標法（[Contemporary Issues in Licensing, HHS/ACF](https://childcareta.acf.hhs.gov/sites/default/files/1408_differential_monitoring_final.pdf)）指出可不需全面稽查、以關鍵合規指標預測整體風險並集中人力；合規計分序位化理論（[Fiene, A Treatise on the Theory of Regulatory Compliance, 2019](https://www.researchgate.net/publication/309126998_Theory_of_Regulatory_Compliance)）主張將「合格／不合格」二元判定改為依嚴重度之序位計分；風險基礎稽查（[Guidance on Risk-Based Inspection](https://inspektorati.rks-gov.net/wp-content/uploads/2024/07/Guidance-on-Risk-Based-Inspection.pdf)）將資源導向高衝擊對象；評鑑品質與違規呈負相關之實證（[Licensing Violations and Program Quality, ACF 2024](http://www.acf.gov/sites/default/files/documents/opre/Short-Summary-Violations-and-QRIS-Final_0.pdf)）支撐以評鑑作為風險分項；主管機關預先定義之嚴重違規清單（[Serious Violations in Licensed Child Care, Wisconsin DCF](https://dcf.wisconsin.gov/cclicensing/seriousviolations)）支撐嚴重度加權。
+
+#### Acceptance Criteria
+
+1. THE Watchdog_System SHALL 為每一機構指派一個評分檔（Scoring_Profile），其值必為「財務鑑識園（forensic）」或「行為監測園（behavioral）」兩者之一；WHERE 機構具備可用之獨立財務決算資料，評分檔為財務鑑識園，否則為行為監測園。
+2. WHERE 機構評分檔為財務鑑識園，THE Risk_Scorer SHALL 套用既定之四分項權重（財務異常 0.40、裁罰 0.30、評鑑 0.15、輿情 0.15，合計 1.0，同 R10.7）。
+3. WHERE 機構評分檔為行為監測園，THE Risk_Scorer SHALL 套用行為評分檔權重（裁罰 0.50、評鑑 0.30、輿情 0.20，合計 1.0）並將財務異常分項標記為「不適用（無獨立財報）」，且不以 0 分或佔位值計入財務分項而放大或壓低風險。
+4. THE Risk_Scorer SHALL 使行為監測園之風險總分維持 0 至 100 之範圍與四級風險等級映射，與財務鑑識園一致。
+5. THE Watchdog_System SHALL 於每一機構之風險結論併同顯示其評分檔別（財務鑑識園／行為監測園），使稽查員得知該分數所依據之資料面向。
+6. WHERE 機構評分檔為行為監測園，THE Watchdog_System SHALL 於其風險呈現中明確標示「本機構無獨立財務決算，風險評分僅基於合規、評鑑與輿情面向」之揭露訊息。
+7. THE Risk_Scorer SHALL 使行為監測園之輿情分項貢獻上限仍受 R10.8 之總分 15 分上限約束，確保單一輿情訊號不足以獨力將機構推入高風險等級。
+8. IF 一間行為監測園之裁罰、評鑑與輿情三分項均無任何真實資料來源，THEN THE Risk_Scorer SHALL 將其風險總分以中性方式處理（不判為高風險）並降低其資料可信度分數（同 R18.2），且於結論標示「可用資料不足以評估」。
+9. THE Watchdog_System SHALL 使評分檔之指派為確定性：相同機構在資料狀態不變下重複計算，其評分檔別與所套用之權重恆相同。
+10. WHERE 涵蓋之附設幼兒園名單、裁罰或評鑑資料以抽樣或事前擷取之快照提供，THE Watchdog_System SHALL 於相關輸出標示其為抽樣／快照示範，並聲明架構可規模化至完整資料來源（同 R9.10 之誠實揭露原則）。
 
 ---
 

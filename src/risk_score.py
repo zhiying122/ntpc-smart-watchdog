@@ -214,6 +214,7 @@ NEUTRAL_SUBSCORES = {
     "financial": 0.0,
     "penalty": 0.0,
     "eval": 30.0,
+    "sentiment": 20.0,   # 輿情缺資料中性值（同 score_sentiment 缺值行為）
 }
 
 # 責任 AI（R10.4, R19.4）：任何面向使用者的風險陳述皆附非空「風險不等於違法」聲明。
@@ -221,6 +222,56 @@ NOT_ILLEGALITY_NOTICE = (
     "風險不等於違法（Risk does not equal illegality）。"
     "本分數僅為稽查優先序參考，非違法或舞弊之認定。"
 )
+
+# ---------- 雙評分檔（R26：財務鑑識園 vs 行為監測園）----------
+# 有獨立財務決算 → forensic（四分項）；無獨立財報（如國小附設幼兒園）→ behavioral
+# （合規/評鑑/輿情三分項，將財務 0.40 權重按學理依據重分配）。
+# 學理：Fiene 合規計分序位化、HHS/ACF 差異化監測、RBI 風險基礎稽查、
+# ACF 2024 評鑑品質—違規負相關實證。詳見 requirements.md R26。
+PROFILE_FORENSIC = "forensic"
+PROFILE_BEHAVIORAL = "behavioral"
+
+PROFILE_WEIGHTS = {
+    # forensic：沿用四分項白盒權重（財務 0.40 + 裁罰 0.30 + 評鑑 0.15 + 輿情 0.15）。
+    PROFILE_FORENSIC: {"financial": 0.40, "penalty": 0.30, "eval": 0.15, "sentiment": 0.15},
+    # behavioral：無財報，財務不計入（None）；權重合計 1.0。
+    PROFILE_BEHAVIORAL: {"financial": None, "penalty": 0.50, "eval": 0.30, "sentiment": 0.20},
+}
+
+# 行為監測園揭露訊息（R26.6）。
+BEHAVIORAL_NOTICE = (
+    "本機構無獨立財務決算，風險評分僅基於合規（裁罰）、評鑑與輿情面向；"
+    "財務鑑識分項不適用。"
+)
+
+# 資料不足揭露（R26.8）：behavioral 園三分項皆無真實資料時的標示。
+INSUFFICIENT_DATA_NOTICE = "可用資料不足以評估，本分數僅供參考。"
+
+# 判定「具備可用獨立財務決算」的來源欄位（任一為真實值即視為有財報）。
+_FINANCIAL_EVIDENCE_KEYS = ("income_actual", "expense_actual", "surplus", "score_financial")
+
+
+def resolve_scoring_profile(entity):
+    """判定機構評分檔（R26.1, R26.9）。
+
+    規則（確定性）：具備可用之獨立財務決算資料 → 'forensic'，否則 → 'behavioral'。
+    判定依據：`_FINANCIAL_EVIDENCE_KEYS` 任一為非缺值即視為有獨立財報。
+    亦支援顯式覆寫：entity 若帶 `scoring_profile` 欄位且為合法值，直接採用
+    （供資料管線預先標記國小附設幼兒園為 behavioral）。
+
+    相同機構在資料狀態不變下重複呼叫，結果恆相同（R26.9）。
+    """
+    get = entity.get if hasattr(entity, "get") else (
+        lambda k, d=None: entity[k] if k in entity else d)
+
+    explicit = get("scoring_profile")
+    if explicit in (PROFILE_FORENSIC, PROFILE_BEHAVIORAL):
+        return explicit
+
+    for key in _FINANCIAL_EVIDENCE_KEYS:
+        if not _is_missing(get(key)):
+            return PROFILE_FORENSIC
+    return PROFILE_BEHAVIORAL
 
 
 def _is_missing(v):
@@ -250,18 +301,23 @@ def _confidence_value(confidence):
     return max(0.0, min(val, 100.0))
 
 
-def score(entity, weights=None, confidence=None):
-    """輸出白盒風險分解 RiskBreakdown（R10.1–R10.3, R5.2）。
+def score(entity, weights=None, confidence=None, profile=None):
+    """輸出白盒風險分解 RiskBreakdown（R10.1–R10.3, R5.2, R26）。
 
     參數
     ----
     entity : dict | pandas.Series
         單一機構的評分輸入，需可取得各分項原始分（見下）或其計算來源欄位。
     weights : dict | None
-        分項顯示權重；預設沿用既有加權（financial 0.50 + penalty 0.34
-        + eval 0.16）。權重鍵須落在 {financial, penalty, eval}。
+        分項顯示權重。預設 None → 依評分檔（profile）自動選取 PROFILE_WEIGHTS：
+        forensic {財務0.40,裁罰0.30,評鑑0.15,輿情0.15}、
+        behavioral {裁罰0.50,評鑑0.30,輿情0.20}（財務不計入）。
+        顯式傳入時以傳入者為準（向後相容既有呼叫）。
     confidence : float | DataConfidence | None
         資料可信度（0–100），寫入 RiskBreakdown.data_confidence 併同顯示（R18.3）。
+    profile : str | None
+        評分檔 'forensic' | 'behavioral'（R26）。None → 由 resolve_scoring_profile
+        依機構是否具獨立財報自動判定（確定性）。
 
     回傳
     ----
@@ -289,11 +345,29 @@ def score(entity, weights=None, confidence=None):
     -----------------------
     - 每個 RiskBreakdown 皆帶非空 not_illegality_notice「風險不等於違法」聲明。
     """
-    if weights is None:
-        weights = WEIGHTS
-
     # entity 可為 dict 或 pandas.Series；統一以 .get 取值。
     get = entity.get if hasattr(entity, "get") else (lambda k, d=None: entity[k] if k in entity else d)
+
+    # 評分檔判定（R26.1）。向後相容策略：
+    #   - 未指定 profile 且 entity 未帶 scoring_profile → 沿用既有三分項 WEIGHTS
+    #     （financial 0.50 + penalty 0.34 + eval 0.16），評分檔標為 forensic，
+    #     不啟用四分項/輿情，確保既有呼叫與契約 build() 行為不變。
+    #   - 明確指定 profile，或 entity 帶合法 scoring_profile → 啟用雙評分檔
+    #     PROFILE_WEIGHTS（forensic 四分項；behavioral 三分項無財務）。
+    explicit_profile = profile if profile in (PROFILE_FORENSIC, PROFILE_BEHAVIORAL) else None
+    entity_profile = get("scoring_profile")
+    if entity_profile not in (PROFILE_FORENSIC, PROFILE_BEHAVIORAL):
+        entity_profile = None
+    use_profile_weights = (explicit_profile is not None) or (entity_profile is not None)
+
+    profile = explicit_profile or entity_profile or resolve_scoring_profile(entity)
+
+    # 權重選取（R26.2, R26.3）。
+    if weights is None:
+        if use_profile_weights:
+            weights = {k: v for k, v in PROFILE_WEIGHTS[profile].items() if v is not None}
+        else:
+            weights = WEIGHTS  # 向後相容：既有三分項權重
 
     def _resolve(subkey, precomputed_key, computer):
         """取分項原始分（0–100）。
@@ -309,36 +383,67 @@ def score(entity, weights=None, confidence=None):
             return NEUTRAL_SUBSCORES[subkey]
         return float(computed)
 
+    # 各分項原始分（0–100），只計算 weights 有定義的分項。
+    _computers = {
+        "financial": ("score_financial", lambda: score_financial(entity)),
+        "penalty": ("score_penalty", lambda: score_penalty(get("penalty_count"))),
+        "eval": ("score_eval", lambda: score_eval(get("eval_grade"))),
+        "sentiment": ("score_sentiment", lambda: score_sentiment(get("neg_ratio"))),
+    }
     raw_scores = {
-        "financial": _resolve("financial", "score_financial",
-                              lambda: score_financial(entity)),
-        "penalty": _resolve("penalty", "score_penalty",
-                            lambda: score_penalty(get("penalty_count"))),
-        "eval": _resolve("eval", "score_eval",
-                         lambda: score_eval(get("eval_grade"))),
+        k: _resolve(k, _computers[k][0], _computers[k][1])
+        for k in weights if k in _computers
     }
 
-    # 各分項加權貢獻；只計入 weights 有定義的分項。
-    contributions = {
-        k: round(weights[k] * raw_scores[k], 4)
-        for k in weights if k in raw_scores
-    }
+    # 各分項加權貢獻；輿情分項貢獻上限 clamp 至 15 分（R10.8, R26.7）。
+    def _contrib(k):
+        c = round(weights[k] * raw_scores[k], 4)
+        if k == "sentiment":
+            c = min(c, 15.0)
+        return c
+
+    contributions = {k: _contrib(k) for k in weights if k in raw_scores}
 
     # total 直接由貢獻回推 → 保證 round(sum(contributions.values()),1) == total。
     # data_confidence 不進入此計算 → 低可信度不會單獨推高風險（R18.2）。
     total = round(sum(contributions.values()), 1)
     total = max(0.0, min(total, 100.0))
 
-    # 責任 AI：確保聲明非空，即使呼叫端未提供亦落實 R10.4/R19.4。
-    notice = NOT_ILLEGALITY_NOTICE
+    # 行為監測園揭露訊息（R26.6）；三分項皆無真實資料 → 併資料不足揭露（R26.8）。
+    # 「無真實資料」以原始來源欄位判定（非計算後的中性值）：
+    #   penalty → score_penalty 或 penalty_count；eval → score_eval 或 eval_grade；
+    #   sentiment → score_sentiment 或 neg_ratio。三者的來源欄位皆缺 → 資料不足。
+    profile_notice = None
+    if profile == PROFILE_BEHAVIORAL:
+        profile_notice = BEHAVIORAL_NOTICE
+        _behavioral_sources = {
+            "penalty": ("score_penalty", "penalty_count"),
+            "eval": ("score_eval", "eval_grade"),
+            "sentiment": ("score_sentiment", "neg_ratio"),
+        }
+
+        def _source_missing(pre_key, src_key):
+            pre = get(pre_key)
+            src = get(src_key)
+            # eval_grade 空字串視為缺；其餘以 _is_missing 判定。
+            src_missing = _is_missing(src) or (isinstance(src, str) and src.strip() == "")
+            return _is_missing(pre) and src_missing
+
+        all_missing = all(
+            _source_missing(*_behavioral_sources[k]) for k in _behavioral_sources
+        )
+        if all_missing:
+            profile_notice = f"{BEHAVIORAL_NOTICE} {INSUFFICIENT_DATA_NOTICE}"
 
     return RiskBreakdown(
         total=total,
         level=risk_level_four(total),
         contributions=contributions,
         weights={k: weights[k] for k in weights if k in raw_scores},
-        not_illegality_notice=notice,
+        not_illegality_notice=NOT_ILLEGALITY_NOTICE,
         data_confidence=_confidence_value(confidence),
+        scoring_profile=profile,
+        profile_notice=profile_notice,
     )
 
 

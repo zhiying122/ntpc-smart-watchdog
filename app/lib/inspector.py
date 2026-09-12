@@ -81,6 +81,10 @@ class RadarBreakdown:
     dimensions: list[RadarDimension] = field(default_factory=list)
     not_illegality_notice: str = ""
     data_confidence: float = 100.0
+    # 雙評分檔（R26）：'forensic'（財務鑑識園）/ 'behavioral'（行為監測園，無獨立財報）。
+    scoring_profile: str = "forensic"
+    # 行為監測園揭露訊息「無獨立財報…」（R26.6）；財務鑑識園為 None。
+    profile_notice: str | None = None
 
 
 @dataclass
@@ -211,13 +215,16 @@ def radar_breakdown(row, data_confidence=None) -> RadarBreakdown:
       前三項貢獻加總（四捨五入一位小數）等於 total。
     """
     entity = _to_dict(row)
+    # 評分檔（R26）：entity 帶 scoring_profile 或判定為 behavioral（無獨立財報，
+    # 如國小附設幼兒園）時，白盒 score() 會啟用 PROFILE_WEIGHTS 並回傳評分檔別與
+    # 揭露訊息；否則沿用既有三分項權重（向後相容，不影響現有工作台）。
     breakdown = risk_score.score(entity, confidence=data_confidence)
 
     dims: list[RadarDimension] = []
     for key in _RADAR_ORDER:
         weight = breakdown.weights.get(key, 0.0)
         subscore = _radar_subscore(entity, key)
-        # 貢獻取自白盒分解（保證可加性）；未計分分項（輿情）貢獻為 0。
+        # 貢獻取自白盒分解（保證可加性）；behavioral 檔財務分項不在 contributions。
         contribution = round(breakdown.contributions.get(key, 0.0), 4)
         dims.append(RadarDimension(
             key=key,
@@ -233,6 +240,8 @@ def radar_breakdown(row, data_confidence=None) -> RadarBreakdown:
         dimensions=dims,
         not_illegality_notice=breakdown.not_illegality_notice,
         data_confidence=breakdown.data_confidence,
+        scoring_profile=breakdown.scoring_profile,
+        profile_notice=breakdown.profile_notice,
     )
 
 
