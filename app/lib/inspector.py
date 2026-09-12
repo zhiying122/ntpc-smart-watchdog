@@ -45,10 +45,12 @@ from src import anomaly  # noqa: E402
 from src import audit  # noqa: E402
 from src import broken_window  # noqa: E402
 from src import evidence  # noqa: E402
+from src import fraud_triangle  # noqa: E402
+from src import multi_source  # noqa: E402
 from src import peer  # noqa: E402
 from src import risk_score  # noqa: E402
 from src import timeline  # noqa: E402
-from src.models import HITLFeedback, SourceRef  # noqa: E402
+from src.models import FraudTriangleResult, HITLFeedback, SourceRef  # noqa: E402
 
 
 # ==========================================================================
@@ -756,6 +758,50 @@ def evidence_chain(row) -> evidence.EvidenceChain:
         attributions=attributions,
     )
     return evidence.build_evidence_chain(conclusion)
+
+
+# ==========================================================================
+# 舞弊三角理論（Fraud Triangle, Cressey 1953）— 質化特徵結構化框架
+# ==========================================================================
+def fraud_triangle_view(row) -> FraudTriangleResult:
+    """組裝機構的舞弊三角評估（壓力／機會／合理化），供 Inspector 頁面呈現。
+
+    薄包裝 `src.fraud_triangle.assess`：把風險引擎已算好的分項（Altman 困境、
+    班佛/Beneish/勾稽、評鑑、裁罰破窗、輿情）對映到 Cressey 三構面，並判定
+    三角成形程度與稽查導向敘事。非黑盒模型、全部可解釋、可追溯至既有分項。
+
+    參數：
+      row：單一機構資料（dict 或 pandas.Series）。
+
+    回傳：
+      FraudTriangleResult（三構面因子 + vertices_present + completeness + narrative）。
+    """
+    entity = _to_dict(row)
+    return fraud_triangle.assess(entity)
+
+
+# ==========================================================================
+# 多來源風險交叉驗證（Multi-Source Cross-Validation）— 五層公開資訊整合
+# ==========================================================================
+def multi_source_view(row) -> multi_source.CrossValidationReport:
+    """組裝機構的多來源風險交叉驗證（官方/司法/新聞/陳情/社群五層）。
+
+    薄包裝 `src.multi_source.build_report`：整合五層公開資訊，區分「事實」與
+    「輿情」，依不同獨立來源層的集中程度判定關注等級（非定罪）。供 Inspector
+    頁面以「風險雷達」呈現各來源發現數、微弱訊號與行政導向敘事。
+
+    責任 AI：AI 可以發現訊號，但不能直接定罪；新聞/社群/陳情/偵查中皆為訊號，
+    非違法認定，僅官方裁罰與判決確定屬可進正式計分的事實層。
+
+    參數：
+      row：單一機構資料（dict 或 pandas.Series），需含 park_name。
+
+    回傳：
+      multi_source.CrossValidationReport。
+    """
+    entity = _to_dict(row)
+    name = str(_get(entity, "park_name", ""))
+    return multi_source.build_report(name)
 
 
 # ==========================================================================

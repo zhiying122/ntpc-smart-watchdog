@@ -169,6 +169,45 @@ class RiskBreakdown:
 
 
 # --------------------------------------------------------------------------
+# 舞弊三角理論（Fraud Triangle, Cressey 1953）—— 質化特徵結構化框架
+# --------------------------------------------------------------------------
+@dataclass
+class FraudTriangleFactor:
+    """舞弊三角單一構面的結構化結果。
+
+    - construct：'pressure' | 'opportunity' | 'rationalization'。
+    - score：0–100，由既有已算分項對映彙整（越高該構面訊號越強）。
+    - present：score 是否達存在門檻（供「三角是否成形」判定）。
+    - signals：構成該構面的可解釋訊號清單（結論 + 來源分項），供稽查敘事與證據鏈。
+    """
+    construct: str
+    score: float
+    present: bool
+    signals: list[str] = field(default_factory=list)
+
+
+@dataclass
+class FraudTriangleResult:
+    """一間機構的舞弊三角評估（Cressey 1953 質化框架，結構化為可解釋輸出）。
+
+    非黑盒模型：三構面分數皆由風險引擎「已算好、可解釋」的分項對映而來，
+    不重新訓練、不引入新權重黑箱。用途是把量化分數翻譯成稽查員熟悉的
+    壓力/機會/合理化語言，並標示三角成形程度以決定查核優先與方向。
+
+    - pressure / opportunity / rationalization：三構面因子。
+    - vertices_present：三構面中達門檻的數目（0–3）。
+    - completeness：'complete'(3) | 'partial'(2) | 'weak'(1) | 'none'(0)。
+    - narrative：一句話稽查導向敘事（非空），供 AI 報告與案件卡引用。
+    """
+    pressure: FraudTriangleFactor
+    opportunity: FraudTriangleFactor
+    rationalization: FraudTriangleFactor
+    vertices_present: int = 0
+    completeness: str = "none"
+    narrative: str = ""
+
+
+# --------------------------------------------------------------------------
 # 證據鏈（Evidence Chain, R11）
 # --------------------------------------------------------------------------
 @dataclass

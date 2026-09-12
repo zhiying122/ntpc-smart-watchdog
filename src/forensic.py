@@ -4,6 +4,7 @@
 第一層：班佛定律 (Benford's Law) —— 抓數字造假傾向
 第二層：Beneish M-Score 改良版 —— 抓盈餘/收支操縱（費用與收入背離）
 第三層：財務比率交叉勾稽 + IQR 離群 —— 抓統計離群異常
+第三層之二：Altman Z'' 在地化困境分 —— 抓財務困境（＝舞弊壓力）
 第四層：Isolation Forest + SHAP —— 抓多維異常並保持可解釋
 
 所有方法都「可解釋」：每個指標都有清楚定義、門檻或可解釋輸出，能對評審講清楚。
@@ -283,6 +284,75 @@ def beneish_lite(row):
     return score, detail
 
 
+# ---------- 第三層之二：Altman Z''-Score 在地化困境分（財務困境=舞弊壓力）----------
+# 文獻依據：Altman, E. I. (1968) Financial Ratios, Discriminant Analysis and the
+# Prediction of Corporate Bankruptcy, Journal of Finance 23(4); 及其非製造/非上市
+# 改良模型 Z''-Score（Altman 2000/2013, "Revisiting the Z-Score and ZETA Models"），
+# 該版本移除市值變數、適用非上市服務業。
+#
+# 【誠實揭露 / 為何是「在地化對應版」而非原始 Z''】
+# 原始 Z'' = 6.56·X1 + 3.26·X2 + 6.72·X3 + 1.05·X4，需要完整資產負債表：
+#   X1=營運資金/總資產、X2=保留盈餘/總資產、X3=EBIT/總資產、X4=權益/總負債。
+# 幼兒園決算資料「不含」總資產/總負債/權益等資產負債表科目（僅有收入、支出、
+# 賸餘、基金餘額）。若硬套原公式=用不存在的資料，反而變成無據黑盒子。
+# 故我們以「Altman 的困境判別精神」為本，用可得欄位建構三個可解釋代理比率，
+# 明確標示為代理(proxy)，維持白盒子可解釋、且架構可在取得完整財報後升級為原始 Z''。
+ALTMAN_Z2_DISTRESS = 1.10   # 代理 Z'' 低於此 → 財務困境（原始 Z''<1.10 為困境區）
+ALTMAN_Z2_SAFE = 2.60       # 代理 Z'' 高於此 → 安全（原始 Z''>2.60 為安全區）
+
+
+def altman_z2_lite(row):
+    """Altman Z'' 在地化困境分（0–100，越高代表財務困境越嚴重＝舞弊壓力越大）。
+
+    以 Altman Z'' 判別精神建構三個可得代理比率（皆可從決算資料算出）：
+      X1' 營運結餘率 = surplus / income          （近似營運資金/資產：短絀→困境）
+      X2' 基金厚度   = fund_balance_end / income  （近似保留盈餘積累：越薄越脆弱）
+      X3' 收支效率   = (income - expense) / income（近似 EBIT/資產：獲利/結餘能力）
+
+    代理判別式（沿用 Z'' 對非上市服務業的正向權重結構，縮放至代理比率量級）：
+      Z2' = 3.3·X1' + 1.2·X2' + 6.7·X3'
+    Z2' 越低代表越接近困境。再以 Altman 的困境/安全帶界線（1.10 / 2.60）線性
+    映射為 0–100 困境分：Z2'<=1.10→100（困境）、>=2.60→0（安全）、之間線性內插。
+
+    回傳 (score or None, detail dict)。缺 income 或 income==0 → (None, {})。
+    """
+    inc = _to_float(row.get("income_actual"))
+    exp = _to_float(row.get("expense_actual"))
+    surplus = _to_float(row.get("surplus"))
+    fund_end = _to_float(row.get("fund_balance_end"))
+
+    if inc is None or inc == 0:
+        return None, {}
+
+    # surplus 缺值時以 income-expense 回補（決算恆等式），仍缺則視為 0（中性）。
+    if surplus is None:
+        surplus = (inc - exp) if exp is not None else 0.0
+    x1 = surplus / inc
+    x2 = (fund_end / inc) if fund_end is not None else 0.0
+    x3 = ((inc - exp) / inc) if exp is not None else (surplus / inc)
+
+    z2 = 3.3 * x1 + 1.2 * x2 + 6.7 * x3
+
+    if z2 <= ALTMAN_Z2_DISTRESS:
+        score = 100.0
+    elif z2 >= ALTMAN_Z2_SAFE:
+        score = 0.0
+    else:
+        # 線性內插：越接近困境界線分數越高。
+        score = (ALTMAN_Z2_SAFE - z2) / (ALTMAN_Z2_SAFE - ALTMAN_Z2_DISTRESS) * 100.0
+
+    zone = ("困境" if z2 <= ALTMAN_Z2_DISTRESS
+            else "安全" if z2 >= ALTMAN_Z2_SAFE else "灰色地帶")
+    detail = {
+        "altman_x1_surplus_ratio": round(x1, 4),
+        "altman_x2_fund_thickness": round(x2, 4),
+        "altman_x3_operating_eff": round(x3, 4),
+        "altman_z2": round(z2, 4),
+        "altman_zone": zone,
+    }
+    return round(score, 1), detail
+
+
 # ---------- 第四層：Isolation Forest + SHAP（多維異常，可解釋）----------
 def isolation_forest_scores(df, feature_cols):
     """
@@ -437,6 +507,16 @@ def analyze(df):
     df["beneish_egdi"] = [d.get("beneish_egdi") for d in beneish_details]
     df["beneish_sgi"] = [d.get("beneish_sgi") for d in beneish_details]
     df["beneish_tata"] = [d.get("beneish_tata") for d in beneish_details]
+
+    # 第三層之二：Altman Z'' 在地化困境分（財務困境＝舞弊壓力，接 Fraud Triangle）
+    altman_scores, altman_details = [], []
+    for _, r in df.iterrows():
+        s, d = altman_z2_lite(r)
+        altman_scores.append(s if s is not None else 0.0)
+        altman_details.append(d)
+    df["altman_score"] = altman_scores
+    df["altman_z2"] = [d.get("altman_z2") for d in altman_details]
+    df["altman_zone"] = [d.get("altman_zone") for d in altman_details]
 
     # 第四層：Isolation Forest + SHAP（多維異常）
     #

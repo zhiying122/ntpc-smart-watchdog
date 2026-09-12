@@ -57,6 +57,8 @@ peers = inspector.peer_comparison(row, population)
 anom = inspector.anomaly_summary(row, population, history_rows)
 attributions = inspector.top_feature_attributions(row, n=5)
 chain = inspector.evidence_chain(row)
+triangle = inspector.fraud_triangle_view(row)
+multisrc = inspector.multi_source_view(row)
 
 # ---------- 案件標頭（R5.1）----------
 common.case_header(row)
@@ -298,8 +300,8 @@ st.markdown(
 common.risk_trend_chart(full, park)
 
 # ---------- 五類分析 / 同儕 / 異常 / 證據 / 歸因 / Copilot ----------
-tab_cat, tab_peer, tab_anom, tab_ev, tab_attr, tab_ai = st.tabs(
-    ["五類分析", "同儕比較", "異常偵測", "證據鏈", "特徵歸因", "AI 稽查助手"])
+tab_cat, tab_peer, tab_anom, tab_src, tab_ft, tab_ev, tab_attr, tab_ai = st.tabs(
+    ["五類分析", "同儕比較", "異常偵測", "多來源示警", "舞弊三角", "證據鏈", "特徵歸因", "AI 稽查助手"])
 
 # ---- 五類分析（R5.4, R5.11, R5.12）----
 with tab_cat:
@@ -432,6 +434,124 @@ with tab_anom:
         )
         st.caption("七種方法各自獨立偵測、交叉驗證：≥2 種方法命中才研判為高可信度異常，"
                    "降低單一方法誤判。樣本不足的方法會誠實標示並跳過，不影響其餘方法。")
+
+# ---- 多來源風險交叉驗證（五層公開資訊：官方/司法/新聞/陳情/社群）----
+with tab_src:
+    common.section("多來源風險交叉驗證", "shield")
+    _lvl = multisrc.cross_validation_level()
+    _lvl_tone = {"corroborated": "critical", "converging": "high",
+                 "single_source": "medium", "none": "normal"}[_lvl]
+    _lvl_label = {"corroborated": "多來源交叉佐證", "converging": "多來源訊號集中",
+                  "single_source": "單一來源訊號", "none": "無多來源訊號"}[_lvl]
+    _lfg = common.RISK[_lvl_tone][0]
+    st.markdown(
+        f"<div class='sw-callout' style='border-left-color:{_lfg};'>"
+        f"<b style='color:{_lfg};'>{_lvl_label}</b>（{multisrc.distinct_layer_count} 類獨立來源）"
+        f"　·　{multisrc.attention_notice()}</div>",
+        unsafe_allow_html=True,
+    )
+
+    # 五層來源發現數「風險雷達」列（官方/司法/新聞/陳情/社群）。
+    _layer_icon = {"official": "🏛 官方裁罰", "judicial": "⚖ 司法資料",
+                   "news": "📰 新聞事件", "petition": "📣 陳情紀錄",
+                   "social": "💬 網路輿情"}
+    _counts = multisrc.count_by_layer()
+    _cols = st.columns(5)
+    for _c, _lk in zip(_cols, ["official", "judicial", "news", "petition", "social"]):
+        _n = _counts.get(_lk, 0)
+        _fg = common.RISK["high"][0] if _n > 0 else common.INK_MUTED
+        with _c:
+            st.markdown(
+                f"<div class='sw-panel' style='text-align:center;'>"
+                f"<div style='font-size:.72rem;color:{common.INK_MUTED};'>{_layer_icon[_lk]}</div>"
+                f"<div style='font-size:1.6rem;font-weight:700;color:{_fg};"
+                f"font-variant-numeric:tabular-nums;'>{_n}</div>"
+                f"<div style='font-size:.68rem;color:{common.INK_MUTED};'>筆</div></div>",
+                unsafe_allow_html=True,
+            )
+
+    # 微弱訊號（早期預警）。
+    if multisrc.all_weak_signals:
+        _ws = "、".join(multisrc.all_weak_signals)
+        common.callout(f"<b>輿情微弱訊號（早期預警）</b>：{_ws}")
+
+    # 逐筆訊號明細：嚴格標示層別與「事實/事件/輿情」，附來源連結。
+    if multisrc.signals:
+        _tier_label = {"fact": "事實", "event": "事件", "sentiment": "輿情"}
+        _tier_color = {"fact": common.RISK["high"][0],
+                       "event": common.RISK["medium"][0],
+                       "sentiment": common.RISK["low"][0]}
+        body = ""
+        for s in multisrc.signals:
+            _demo = "（示範樣本）" if s.is_demo_sample else ""
+            _stage = f"｜{s.judicial_stage}" if s.judicial_stage else ""
+            _link = (f"<a href='{s.url}' target='_blank'>{s.source}</a>"
+                     if s.url else s.source)
+            body += (
+                f"<tr><td class='l'>{s.layer_label}</td>"
+                f"<td class='l' style='color:{_tier_color.get(s.tier, common.INK_MUTED)};'>"
+                f"{_tier_label.get(s.tier, s.tier)}{_stage}</td>"
+                f"<td class='l'>{s.text}{_demo}</td>"
+                f"<td class='l' style='font-size:.76rem;'>{_link}<br>"
+                f"<span style='color:{common.INK_MUTED};'>{s.date}</span></td></tr>")
+        st.markdown(
+            "<table class='sw-table'><thead><tr><th class='l'>來源層</th>"
+            "<th class='l'>性質</th><th class='l'>內容</th>"
+            "<th class='l'>來源／日期</th></tr></thead>"
+            f"<tbody>{body}</tbody></table>",
+            unsafe_allow_html=True,
+        )
+        st.caption("多來源交叉驗證：不同獨立來源在同一機構集中出現時提高關注度；"
+                   "「事實」（官方裁罰／判決確定）可進正式風險計分，「事件」（新聞／"
+                   "陳情／偵查起訴中）與「輿情」（社群評論）僅為關注訊號。"
+                   "被檢舉 ≠ 被調查 ≠ 被起訴 ≠ 被判決有罪。"
+                   "AI 只發現訊號，不作違法認定；風險不等於違法。")
+    else:
+        common.empty_state("無多來源訊號", "目前查無此機構的公開新聞、社群或司法訊號。", "check")
+
+# ---- 舞弊三角理論（Cressey 1953，質化特徵結構化框架）----
+with tab_ft:
+    common.section("舞弊三角研判（壓力 · 機會 · 合理化）", "shield")
+    _ft_tone = {"complete": "critical", "partial": "high",
+                "weak": "medium", "none": "normal"}[triangle.completeness]
+    _ft_label = {"complete": "三角完整成形（3/3）", "partial": "部分成形（2/3）",
+                 "weak": "單一構面（1/3）", "none": "未成形（0/3）"}[triangle.completeness]
+    _ft_fg, _ft_bg, _ft_bd = common.RISK[_ft_tone]
+    st.markdown(
+        f"<div class='sw-callout' style='border-left-color:{_ft_fg};'>"
+        f"<b style='color:{_ft_fg};'>{_ft_label}</b>　·　{triangle.narrative}</div>",
+        unsafe_allow_html=True,
+    )
+    _factors = [
+        ("壓力 Pressure", triangle.pressure, "財務困境／收支壓力（Altman Z''、收支比、短絀）"),
+        ("機會 Opportunity", triangle.opportunity, "內控／治理弱點與帳務異常空間（評鑑、班佛/Beneish、勾稽）"),
+        ("合理化 Rationalization", triangle.rationalization, "重複違規行為型態與負面輿情（裁罰破窗、輿情）"),
+    ]
+    _cols = st.columns(3)
+    for _col, (_name, _f, _desc) in zip(_cols, _factors):
+        _tone = ("critical" if _f.score >= 75 else "high" if _f.present
+                 else "medium" if _f.score >= 30 else "normal")
+        _fg, _bg, _bd = common.RISK[_tone]
+        _mark = "✓ 達門檻" if _f.present else "未達門檻"
+        _sigs = "".join(
+            f"<li style='margin-bottom:2px;'>{s}</li>" for s in _f.signals)
+        with _col:
+            st.markdown(
+                f"<div class='sw-panel' style='border-top:3px solid {_fg};'>"
+                f"<div style='font-weight:700;color:{common.INK};'>{_name}</div>"
+                f"<div style='font-size:1.8rem;font-weight:700;color:{_fg};"
+                f"line-height:1.1;font-variant-numeric:tabular-nums;'>{_f.score:.0f}"
+                f"<span style='font-size:.8rem;color:{common.INK_MUTED};font-weight:500;'>/100</span></div>"
+                f"<div style='color:{_fg};font-size:.76rem;font-weight:600;margin:2px 0 6px;'>{_mark}</div>"
+                f"<div style='color:{common.INK_MUTED};font-size:.72rem;margin-bottom:6px;'>{_desc}</div>"
+                f"<ul style='color:{common.INK_2};font-size:.78rem;margin:0;padding-left:16px;'>{_sigs}</ul>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+    st.caption("舞弊三角理論（Cressey, 1953；經 AICPA SAS No. 99 納入審計準則）："
+               "壓力、機會、合理化三構面同時具備時舞弊風險最高。本研判非黑盒模型，"
+               "三構面分數皆由風險引擎已算好的可解釋分項對映而來，可完整追溯。"
+               "三構面皆達門檻者建議列為優先深度查核對象。")
 
 # ---- 證據鏈（R5.7）----
 with tab_ev:
