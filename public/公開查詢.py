@@ -711,7 +711,7 @@ with st.container(key="filter_card"):
     with c2:
         radius_km = st.select_slider(
             "搜尋範圍",
-            options=[0.5, 1.0, 2.0, 5.0],
+            options=[0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 3.0, 5.0],
             value=2.0,
             format_func=lambda v: geo.format_distance(v),
         )
@@ -893,6 +893,19 @@ with left:
     # - 選了行政區（不論有無定位家）→ 以該區機構的座標範圍 fit_bounds。
     # - 只定位家、未選區 → 以家為中心，依搜尋半徑決定 zoom。
     # - 都沒有 → 新北市全域乾淨底圖。
+    def _zoom_for_radius(km: float) -> int:
+        # 依搜尋半徑決定初始 zoom；半徑越小越放大。涵蓋所有滑桿級距（含中間值）。
+        if km <= 0.4:
+            return 15
+        if km <= 0.9:
+            return 14
+        if km <= 1.5:
+            return 14
+        if km <= 2.0:
+            return 13
+        if km <= 3.0:
+            return 13
+        return 12
     _coords = [(m.lat, m.lng) for m in markers if m.has_coords]
     _fit_bounds = None
     if overview:
@@ -902,7 +915,7 @@ with left:
         zoom = 11
     elif home and not sel_dist:
         center = [home["lat"], home["lng"]]
-        zoom = {0.5: 15, 1.0: 14, 2.0: 13, 5.0: 12}.get(radius_km, 13)
+        zoom = _zoom_for_radius(radius_km)
     elif _coords:
         # 以機構座標的外接範圍置中（涵蓋所選行政區的全部機構）。
         _lats = [c[0] for c in _coords]
@@ -912,7 +925,7 @@ with left:
         _fit_bounds = [[min(_lats), min(_lngs)], [max(_lats), max(_lngs)]]
     elif home:
         center = [home["lat"], home["lng"]]
-        zoom = {0.5: 15, 1.0: 14, 2.0: 13, 5.0: 12}.get(radius_km, 13)
+        zoom = _zoom_for_radius(radius_km)
     else:
         # 未搜尋：以新北市為中心的乾淨底圖，不畫任何機構點。
         center = list(geo.DEFAULT_CENTER)
