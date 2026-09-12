@@ -1127,7 +1127,7 @@ with right:
             # ---- 分頁控制列（上一頁／頁碼／下一頁）----
             _pg_prev, _pg_info, _pg_next = st.columns([1, 1.4, 1])
             with _pg_prev:
-                if st.button("‹ 上一頁", key="list_prev", use_container_width=True,
+                if st.button("上一頁", key="list_prev", use_container_width=True,
                              disabled=(_page <= 1)):
                     st.session_state["list_page"] = _page - 1
                     st.rerun()
@@ -1139,7 +1139,7 @@ with right:
                     f"（共 {_total} 間）</div>",
                     unsafe_allow_html=True)
             with _pg_next:
-                if st.button("下一頁 ›", key="list_next", use_container_width=True,
+                if st.button("下一頁", key="list_next", use_container_width=True,
                              disabled=(_page >= _pages)):
                     st.session_state["list_page"] = _page + 1
                     st.rerun()
@@ -1240,7 +1240,7 @@ def render_disclosure(row: dict):
     _details = pdset.penalty_details_for(
         str(row.get("owner", "")), _penalty_flag, PENALTY_INDEX)
     _pen_source = SourceRef(
-        "全國教保資訊網．裁罰查詢", _authority,
+        "全國教保資訊網公開裁罰紀錄（經 g0v 開源專案整理備份）", _authority,
         "https://ap.ece.moe.edu.tw/webecems/punishSearch.aspx", TODAY)
     if _details:
         # 一人多園提醒（資料正確性 / 責任 AI）：負責人若同時經營多間園，裁罰以
@@ -1265,6 +1265,11 @@ def render_disclosure(row: dict):
                 f"※ 本園負責人名下另有其他園（共 {_owner_fac} 間），上列裁罰係依"
                 "負責人姓名比對之公開紀錄，可能涵蓋其名下其他園，非必然全屬本園；"
                 "請以主管機關對本園之公告為準。")
+        # 溯源提示（B1）：資料為公開裁罰紀錄之整合備份，官方查詢頁為表單首頁、
+        # 無法直達單筆，故明確引導家長以園名／負責人自行查詢核對。
+        lines.append(
+            "本平台裁罰資料整合自「全國教保資訊網」公開裁罰紀錄；如需核對，"
+            "請於官方裁罰查詢頁以「園所名稱」或「負責人姓名」查詢。")
         row["public_penalty"] = lines
     elif _penalty_flag == "有":
         # 中間狀態：官方登載有裁罰，但本平台以負責人姓名比對尚未取得逐筆明細
@@ -1517,21 +1522,10 @@ else:
 # 頁尾
 # ===========================================================================
 st.markdown(
-    f"""
-    <div class="foot">
-    ・機構基本資料、收費、評鑑、裁罰為公開資料集；「查無公開資料」表示該欄位
-    目前無對應公開來源，並非機構有無問題之判斷。<br>
-    ・「公開輿情觀測」的新聞為即時蒐集之公開新聞報導，來源為 Google News、
-    Bing News 公開新聞聚合，以及自由時報、東森、鏡週刊、中央社、聯合報、Newtalk
-    等台灣主要媒體之公開 RSS 直連（皆免金鑰、不需登入）；Google 評論、Facebook、
-    Instagram、Dcard 等社群平台為<b>示範資料（DEMO）</b>，正式版一律透過各平台
-    官方 API（如 Google Places API、Meta Graph API）授權接入，不繞過存取控制、
-    不蒐集需登入才可見之內容。<br>
-    ・本站只呈現公開資訊與公開網路討論觀測，不含任何內部評分或分級，
-    與教育局內部稽查系統採網路與主機隔離。<br>
-    ・地址定位使用 OpenStreetMap／Nominatim 免費服務，不儲存您輸入的地址。<br>
-    ・資料最後更新：{data_updated_at()}
-    </div>
-    """,
+    "<div style='text-align:center;color:var(--ink-faint);font-size:.78rem;"
+    "margin-top:28px;padding:16px 0'>"
+    "© 2026 Fiscalint. All Rights Reserved."
+    "</div>",
     unsafe_allow_html=True,
 )
+
