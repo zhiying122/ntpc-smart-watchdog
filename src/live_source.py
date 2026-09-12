@@ -50,7 +50,7 @@ PRESCHOOLS_URL = "https://kiang.github.io/ap.ece.moe.edu.tw/preschools.json"
 PUNISH_URL = "https://kiang.github.io/ap.ece.moe.edu.tw/punish_all.json"
 
 SOURCE_ATTRIBUTION = (
-    "全國教保資訊網（教育部），經 g0v 開源專案（江明宗 kiang）整理備份"
+    "全國教保資訊網（教育部）"
 )
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

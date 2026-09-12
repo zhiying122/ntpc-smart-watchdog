@@ -64,7 +64,7 @@ from lib import public_dataset as pdset  # noqa: E402  (public/lib)
 from src.models import SourceRef  # noqa: E402
 
 import folium  # noqa: E402
-from folium.plugins import BeautifyIcon  # noqa: E402
+from folium.plugins import BeautifyIcon, MarkerCluster  # noqa: E402
 from streamlit_folium import st_folium  # noqa: E402
 
 PROC = os.path.join(ROOT, "data", "processed")
@@ -674,9 +674,6 @@ sentiment_data = load_sentiment()
 _is_live = bool(_pubdata.get("is_live"))
 _status_label = "即時同步" if _is_live else "自動更新備援"
 _status_color = "var(--safe-text)" if _is_live else "var(--sage-ink)"
-_meta = snapshot_meta()
-_pre_n = (_meta or {}).get("sources", {}).get("preschools", {}).get("count")
-_count_txt = f"　·　全國 {_pre_n:,} 間機構資料".replace(",", ",") if _pre_n else ""
 _note_txt = f"　·　{_pubdata['note']}" if _pubdata.get("note") else ""
 st.markdown(
     "<div class='data-status'>"
@@ -686,7 +683,6 @@ st.markdown(
     f"最後更新 <b>{html.escape(data_updated_at())}</b>"
     "<span class='ds-sep'>·</span>"
     "每日自動更新"
-    f"{html.escape(_count_txt)}"
     f"<span class='ds-sep'>·</span>資料來源：{html.escape(_pubdata.get('attribution',''))}"
     f"{html.escape(_note_txt)}"
     "</div>",
@@ -707,9 +703,10 @@ with st.container(key="filter_card"):
     c1, c2 = st.columns([2.4, 1])
     with c1:
         address = st.text_input(
-            "輸入您家的地址（或附近地標）",
+            "輸入您家的地址",
             placeholder="例如：新北市板橋區文化路一段",
-            help="使用 OpenStreetMap 免費定位服務，不會儲存您的地址。",
+            help="請盡量填到「行政區＋路名」以提高定位準確度（例如：新北市板橋區文化路一段）。"
+                 "使用 OpenStreetMap 免費定位服務，不會儲存您的地址。",
         )
     with c2:
         radius_km = st.select_slider(
@@ -743,6 +740,10 @@ if do_search and address.strip():
             "lat": res["lat"], "lng": res["lng"], "label": res["display_name"],
             "notice": res.get("notice", "")}
         st.session_state["selected_park_id"] = None
+        # 誠實揭露實際定位到的地點，請家長自行確認（避免同名地點或門牌查無時的誤定位）。
+        _loc = str(res.get("display_name") or "").strip()
+        if _loc:
+            st.info(f"已定位到：{_loc}　·　請確認是否為您要的位置，如不正確請補上行政區與路名再查一次。")
         if res.get("notice"):
             st.info(res["notice"])
     else:
@@ -806,7 +807,10 @@ def build_markers(frame: pd.DataFrame) -> list[pmap.ParentMarker]:
 # 未做任何篩選時地圖保持乾淨、不攤開全部機構；一旦有明確查詢意圖（定位或選區）
 # 就建立標記，讓地圖與右側清單同步（修正「選了行政區但地圖沒變化」）。
 searched = (home is not None) or bool(sel_dist)
-markers = build_markers(work) if searched else []
+# 未搜尋時＝新北市總覽：畫出全部（有座標的）機構，讓「先看看新北市的教保機構分布」
+# 名副其實。機構數可能達數百上千，總覽模式改用叢集（MarkerCluster）避免地圖卡頓。
+overview = not searched
+markers = build_markers(work)
 
 # park_id → 裁罰狀態短標籤（供右側清單即時顯示；輿情不在清單即時爬）。
 def _penalty_status_short(park_id: str) -> str:
@@ -891,7 +895,12 @@ with left:
     # - 都沒有 → 新北市全域乾淨底圖。
     _coords = [(m.lat, m.lng) for m in markers if m.has_coords]
     _fit_bounds = None
-    if home and not sel_dist:
+    if overview:
+        # 新北市總覽：固定以新北市全域為視野（叢集會自行聚合），不依外接框縮放，
+        # 避免離島/山區的零星點把視野拉歪。
+        center = list(geo.DEFAULT_CENTER)
+        zoom = 11
+    elif home and not sel_dist:
         center = [home["lat"], home["lng"]]
         zoom = {0.5: 15, 1.0: 14, 2.0: 13, 5.0: 12}.get(radius_km, 13)
     elif _coords:
@@ -933,6 +942,8 @@ with left:
 
     # 機構標記：著色與右側清單一致＝公開裁罰狀態（綠=無裁罰、暖琥珀=有/經標記裁罰），
     # 避免地圖全灰、且左右燈號語意同步。輿情關注度於點入機構後即時計算，不在地圖著色。
+    # 總覽模式（未搜尋）機構數多，改把點加進叢集，遠看聚合、放大自動展開，避免卡頓。
+    _target = MarkerCluster(name="新北市教保機構").add_to(fmap) if overview else fmap
     for m in markers:
         if not m.has_coords:
             continue
@@ -956,18 +967,19 @@ with left:
             fill=True, fill_color=_color, fill_opacity=0.9,
             tooltip=f"{m.name}（{_pstat}）",
             popup=folium.Popup(popup_html, max_width=260),
-        ).add_to(fmap)
+        ).add_to(_target)
 
     map_state = st_folium(fmap, height=460, use_container_width=True,
                           returned_objects=["last_object_clicked"])
 
     if not searched:
-        # 未搜尋：不顯示關注度圖例（此時圖上沒有機構點），只給一句引導。
+        # 總覽模式：地圖已叢集顯示全新北市機構。給一句引導＋標記色說明。
         st.markdown(
             "<div class='warm-note' style='margin-top:8px'>"
-            "在上方輸入您家的地址並按「定位並搜尋」，地圖就會以您家為中心，"
-            "標出附近的教保機構，並在右側依距離由近到遠列出。"
-            "您也可以先用「公私立別」與「行政區」縮小範圍。</div>",
+            "地圖已標出新北市的教保機構（數字圈為聚合，放大即展開，點按單點看公開紀錄）。"
+            "圓點顏色為公開裁罰狀態：<b>綠</b>＝無裁罰、<b>暖琥珀</b>＝有／經標記裁罰。"
+            "輸入您家的地址並按「定位並搜尋」，即可改以您家為中心、依距離列出附近機構；"
+            "也可先用「公私立別」與「行政區」縮小範圍。</div>",
             unsafe_allow_html=True)
     else:
         # 搜尋後顯示圖例＋說明，合併為固定高度區塊（80px），左欄底＝地圖460＋80＝540。
@@ -1181,7 +1193,7 @@ def render_disclosure(row: dict):
     _details = pdset.penalty_details_for(
         str(row.get("owner", "")), _penalty_flag, PENALTY_INDEX)
     _pen_source = SourceRef(
-        "全國教保資訊網．裁罰查詢（資料經 g0v 開源專案整理）", _authority,
+        "全國教保資訊網．裁罰查詢", _authority,
         "https://ap.ece.moe.edu.tw/webecems/punishSearch.aspx", TODAY)
     if _details:
         lines = [f"近年公開裁罰 {len(_details)} 筆（依負責人比對）："]

@@ -231,4 +231,4 @@ def test_attribution_present():
     res = ls.parse_preschools(_fake_geojson())
     assert "全國教保資訊網" in res[0].source_attribution
     pens = ls.parse_penalties(_fake_punish())
-    assert "g0v" in pens[0].source_attribution
+    assert "全國教保資訊網" in pens[0].source_attribution
