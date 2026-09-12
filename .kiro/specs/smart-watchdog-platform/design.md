@@ -11,8 +11,12 @@
 ### 設計定位（三大差異化武器，貫穿全文件）
 
 1. **鑑識會計護城河**：風險分數由**規則與統計**（班佛定律 MAD + 卡方、Beneish 改良版、Isolation Forest + SHAP、IQR 離群、跨年度突變、同儕 z-score）計算，**AI 不參與計分**。這是可解釋性的根基。
-2. **可解釋白盒子分數**：0–100 總分可攤開為 財務異常 / 裁罰 / 評鑑 /（預留）輿情 四分項，各有明確權重，以雷達圖呈現，並附各分項貢獻明細。**禁止黑盒**。
-3. **生成式 AI（AWS Bedrock）產出稽查報告與建議**：Bedrock 只負責「把數字翻譯成稽查員看得懂的話 + 給稽查方向」，並具規則式 fallback 確保 Demo 可跑。
+2. **可解釋白盒子分數**：0–100 總分可攤開為 財務異常 (0.40) / 裁罰含破窗效應累犯加權 (0.30) / 評鑑 (0.15) / 輿情 (0.15) 四分項，各有明確權重，以雷達圖呈現，並附各分項貢獻明細。輿情分項貢獻上限為 15 分，確保單一輿情訊號不足以獨力推入高風險。**禁止黑盒**。
+3. **生成式 AI（AWS Bedrock）產出稽查報告與建議**：Bedrock 負責「把數字翻譯成稽查員看得懂的話 + 給稽查方向」，並額外用於輿情微弱訊號的訊號偵測與情緒分析（取代本地端 LLM，符合競賽限用 Bedrock 之規範），全程具規則式 fallback 確保 Demo 可跑。
+
+### 痛點故事與目標界定（Motivating Scenario，設計層對齊）
+
+系統的預警目標是「**高風險管理環境**」而非預測特定犯罪。重大事件多為長期管理異常（師資頻繁流動、監督失效、頻繁小違規未改善）累積的後果。設計以三個新增／強化的可解釋訊號捕捉此環境：(1) **人事費可負擔性勾稽**（登記教職員數應有人事支出 vs 決算人事費，鑑識會計），(2) **破窗效應累犯加權**（頻繁、近期、未改善的輕微違規指數式累積），(3) **輿情微弱訊號**（家長／社群文本中的早期警訊）。三者皆併入白盒分數且各自附證據鏈，嚴守「不預測犯罪、不以單一訊號貼標籤」的責任 AI 邊界。
 
 ### 責任 AI 原則（Responsible AI，設計層強制）
 
@@ -27,7 +31,7 @@
 | 分類 | 需求 | 設計落點 |
 |------|------|----------|
 | 使用者模式 | R1, R2, R5, R6 | 使用者模式與三入口（Gov/Inspector/Parent）|
-| 風險引擎 | R7, R8, R10, R12, R13, R18 | Risk Engine（延伸 forensic.py / risk_score.py）|
+| 風險引擎 | R7, R8, R10, R12, R13, R18, R25 | Risk Engine（延伸 forensic.py / risk_score.py）+ 人事勾稽 + 破窗效應累犯加權 |
 | 可解釋與證據 | R11, R14, R19 | Evidence Chain + Knowledge Graph + Responsible AI |
 | AI 助手 | R15 | AI Copilot（延伸 ai_report.py）|
 | NLP | R9 | NLP Engine |
@@ -134,9 +138,36 @@ def compute_metrics(row: dict, peer_stats: PeerStats) -> ForensicMetrics:
 
 def sudden_change_flag(yoy_rate: float, threshold: float = 0.30) -> bool:
     """|YoY| >= threshold 標記突變；threshold 可設定範圍 0.01–5.00 (R7.6)。"""
+
+def personnel_affordability(row: dict, min_wage: float,
+                            threshold: float = 1.3) -> AffordabilityCheck:
+    """人事費可負擔性勾稽 (R7.12)：
+    ratio = (登記教職員數 × min_wage × 12) / 決算人事費。
+    ratio > threshold(1.0–5.0) → 標記「人事費與登記人數不一致」待查訊號，
+    附登記教職員數/法定最低薪資/決算人事費三項原始值。
+    任一分母/因子為 0 或缺值 → uncomputable，排除判定不中斷 (R7.13)。"""
 ```
 
-`ForensicMetrics` 每一指標附 `formula: str`（R7.9）。既有四層方法（班佛 MAD+卡方、Beneish、Isolation Forest、IQR）維持（R7.10, R8.6）。
+`ForensicMetrics` 每一指標附 `formula: str`（R7.9）。既有四層方法（班佛 MAD+卡方、Beneish、Isolation Forest、IQR）維持（R7.10, R8.6）。班佛 MAD 門檻採 Nigrini (2012) 標準（第一位數 < 0.006 高度吻合、> 0.015 不吻合），Beneish 採 M-score > −2.22 之學界通用門檻，兩者於簡報作為可辯護依據。
+
+### 1b. Broken_Window_Score / 破窗效應累犯加權 [淨新增 — `src/broken_window.py`]
+
+依 R25 實作，屬裁罰分項的組成，全程規則與統計、可攤開解釋。學理依據：破窗理論（輕微失序誘發擴散）與動態再犯風險（近期事件較陳年紀錄更具預測力）。
+
+```python
+def broken_window_score(violations: list[Violation], as_of: date,
+                        half_life_months: int = 18,
+                        window_months: int = 36) -> BrokenWindowResult:
+    """Broken_Window_Score = min(100,
+        frequency_amplifier(n) × Σ_i severity_weight(v_i) × time_decay(t_i))
+    severity_weight: 輕微=3 / 中度=6 / 重大=12 (R25.2)
+    time_decay(t) = 0.5 ^ (months_since / half_life_months)，H 範圍 6–36 (R25.3)
+    frequency_amplifier(n) = 1 + 0.15 × (n − 1)，n=窗內違規筆數；n=0 → 分數0 (R25.4)
+    window 預設近 36 個月可設定 (R25.5)；每筆附貢獻明細 (R25.6)；
+    缺類型/日期 → pending_manual 排除不中斷 (R25.8)；相同輸入確定性 (R25.9)。"""
+```
+
+嚴重度分級對照（violation type → severity）以設定表維護，供 NLP 違規類型辨識（R9.2）對接。破窗分數併入裁罰分項但不改變裁罰於總分的既定權重（R25.7）。
 
 ### 2. Anomaly_Detector [延伸現有]
 
@@ -157,16 +188,18 @@ def consolidate(results: list[AnomalyMethodResult]) -> ConsolidatedAnomaly:
 
 ### 3. Risk_Scorer [延伸現有 — `src/risk_score.py`]
 
-保留白盒加權（financial 0.50 + penalty 0.34 + eval 0.16）、`risk_level_percentile`、`risk_level_absolute`、`build`。強化：分項貢獻明細（R10.3）、缺資料以中性值處理不放大（R10.5, R18.2）、風險不等於違法標示（R10.4, R19.4）。
+由既有三分項擴充為四頂層分項白盒加權：**財務異常 0.40 + 裁罰（含破窗效應累犯加權）0.30 + 評鑑 0.15 + 輿情 0.15**（合計 1.0，R10.7）。保留 `risk_level_percentile`、`risk_level_absolute`、`build`。強化：分項貢獻明細（R10.3）、缺資料以中性值處理不放大（R10.5, R18.2）、風險不等於違法標示（R10.4, R19.4）、輿情分項貢獻上限 15 分（R10.8）、示範估算標示（R10.9, R9.10）。
 
 ```python
 def score(entity: EntityData, weights: Weights, confidence: float) -> RiskBreakdown:
-    """輸出 total(0-100) + 各分項貢獻明細 + level(低/中/高/極高)。
-    加權後分項總和 == total (R5.2)。
-    缺資料分項以中性值代入(R10.5)；低可信度不得單獨推高(R18.2)。"""
+    """輸出 total(0-100) + 四分項貢獻明細(financial/penalty/eval/sentiment) + level。
+    加權後分項總和 == total (R5.2)。裁罰分項納入 Broken_Window_Score (R25.7)。
+    輿情分項貢獻 clamp 至 <= 15，確保單一輿情訊號不獨力推入高風險 (R10.8)。
+    缺資料分項以中性值代入(R10.5)；低可信度不得單獨推高(R18.2)；
+    輿情來自抽樣示範時於明細標示 demo_estimate (R10.9)。"""
 ```
 
-`RiskBreakdown.contributions` 為 `dict[str, float]`，`sum(contributions.values()) == total`（供雷達圖與可解釋展示，R5.2, R10.3）。
+`RiskBreakdown.contributions` 為 `dict[str, float]`，`sum(contributions.values()) == total`（供雷達圖與可解釋展示，R5.2, R10.3）。既有 financial 0.50 / penalty 0.34 / eval 0.16 權重更新為四分項版本，並於 `common.py` 契約以附加欄位承接輿情分數，不破壞既有頁面載入。
 
 ### 4. Peer_Group / 同儕比較 [延伸現有]
 
@@ -185,13 +218,24 @@ def detect_change_points(series: list[float]) -> list[ChangePoint]:
     """統計顯著變化點；每點附觸發指標說明(R12.2–R12.4)。"""
 ```
 
-### 6. NLP_Engine [淨新增]
+### 6. NLP_Engine [淨新增 — `src/nlp_engine.py`]
 
 ```python
 def analyze_text(text: str, doc_type: str) -> NLPResult:
     """分類、違規類型與嚴重度、關鍵字/主題、事件摘要與時間軸(R9.1–R9.4)。
     依 Risk_Taxonomy 歸類；無法歸類 → '其他' 並保留原文供人工判讀(R9.5, R9.6)。"""
+
+def detect_weak_signals(text: str, source: SourceRef) -> WeakSignalResult:
+    """偵測家長/社群輿情微弱訊號 (R9.7)，五類：師資頻繁更換、幼兒抗拒上學、
+    監視設備異常、管理封閉/拒絕溝通、照顧安全疑慮。
+    輸出命中訊號類別 + 情緒傾向 + 來源文本片段與來源標示供證據鏈 (R9.8)。
+    優先以 AWS Bedrock 執行；Bedrock 不可用 → 規則式關鍵字比對 fallback (R9.9)。
+    抽樣示範資料 → 輸出標示 is_demo_sample 並聲明架構可規模化 (R9.10)。
+    未命中任何類別 → 標記 'no_signal'，不產生風險訊號 (R9.11)。
+    責任邊界：單一輿情文本不得作為違法認定依據 (R9.8)。"""
 ```
+
+輿情微弱訊號的風險貢獻透過 Risk_Scorer 輿情分項併入總分，且受 15 分上限約束（R10.8），確保符合責任 AI。輿情資料流：`模擬/抽樣貼文 → Bedrock/規則偵測 → 輿情分項 → 白盒總分`，與 AI 報告資料流一致（不回流影響其他分項計分）。
 
 ### 7. Confidence_Scorer [淨新增]
 
@@ -681,9 +725,7 @@ class DataConfidence:
 
 ### Property 39: 財務文件解析往返一致
 
-*For any* 有效財務物件 x，`parse(print(x))` 產生與 x 等價的財務物件；且 `print(parse(print(x))) == print(x)`（美化輸出穩定）。
-
-解析器與序列化附註（Parser & Serializer Note）之 round-trip 驗證。
+*For any* 有效財務物件 x，`parse(print(x))` 產生與 x 等價的財務物件；且 `print(parse(print(x))) == print(x)`（美化輸出穩定）。此為解析器與序列化附註（Parser & Serializer Note）之 round-trip 驗證。
 
 **Validates: Requirements 17.1**
 
@@ -711,6 +753,36 @@ class DataConfidence:
 
 **Validates: Requirements 15.5**
 
+### Property 44: 破窗效應累犯加權—公式、上限與確定性
+
+*For any* 一組違規紀錄與參數（半衰期 6–36 個月、評估窗），破窗效應累犯加權分數等於 min(100, 頻率放大係數 × Σ(嚴重度權重 × 時效衰減係數))，其中時效衰減 = 0.5^(距今月數/半衰期)、頻率放大 = 1 + 0.15×(筆數−1)；違規筆數為 0 時分數為 0；相同輸入永遠產生相同分數（確定性），且分數恆介於 0 至 100。
+
+**Validates: Requirements 25.1, 25.2, 25.3, 25.4, 25.9**
+
+### Property 45: 破窗效應累犯加權—時效單調性與缺值排除
+
+*For any* 兩筆嚴重度相同、僅發生時間不同的違規，較近期者的加權貢獻不小於較久遠者（時效衰減單調）；缺違規類型或發生日期之紀錄被標記待人工確認並排除於計算之外，不中斷其餘紀錄。
+
+**Validates: Requirements 25.3, 25.8**
+
+### Property 46: 人事費可負擔性勾稽正確與缺值安全
+
+*For any* 有效的登記教職員數、法定最低薪資與決算人事費，人事費可負擔性比率等於 (教職員數 × 最低薪資 × 12) / 決算人事費，且當比率大於門檻（1.0–5.0）時標記待查訊號並附三項原始值；任一因子為 0 或缺值時該指標標記為不可計算並排除於待查判定，計算不拋出例外。
+
+**Validates: Requirements 7.12, 7.13**
+
+### Property 47: 輿情微弱訊號歸類與責任邊界
+
+*For any* 輿情文本，微弱訊號偵測輸出的命中類別必為五類預定義訊號之子集或為「無明顯訊號」；每一命中訊號皆附非空來源文本片段與來源標示；輸出不包含將機構斷言為違法之陳述。
+
+**Validates: Requirements 9.7, 9.8, 9.11**
+
+### Property 48: 輿情分項貢獻上限
+
+*For any* 機構之風險分解，輿情分項對總分的貢獻不超過 15 分，使任何輿情訊號組合皆不足以單獨使機構達到高風險門檻。
+
+**Validates: Requirements 10.7, 10.8**
+
 ---
 
 ## Error Handling
@@ -725,6 +797,9 @@ class DataConfidence:
 | 方法樣本不足 | 標記 `insufficient_sample` 並跳過該方法，不中斷其餘方法 | R8.5, R13.4 |
 | 分項缺乏真實資料 | 以中性值代入（非佔位值放大），並降低該機構資料可信度 | R10.5, R18.2 |
 | 文本無法歸類 | 歸為「其他」並保留原文供人工判讀 | R9.6 |
+| 輿情文本未命中訊號 | 標記 `no_signal`，不產生風險訊號 | R9.11 |
+| 違規缺類型/發生日期 | 標記 `pending_manual`，排除於破窗計算，不中斷其餘 | R25.8 |
+| 人事勾稽因子為 0/缺值 | 標記 uncomputable，排除於待查判定，不拋例外 | R7.13 |
 | 實體歸屬無法可靠判定 | 標記 `pending_manual`，不強制合併 | R17.3 |
 
 ### 決策層
