@@ -142,7 +142,7 @@ if _is_closed:
     _rc = st.columns([1.2, 3])
     with _rc[0]:
         if st.button("重新開啟案件", key=f"reopen::{_entity_id}",
-                     use_container_width=True, type="primary"):
+                     width="stretch", type="primary"):
             _new = case_status.set_status(_entity_id, "pending", actor="inspector",
                                           note="重新開啟案件")
             st.toast("案件已重新開啟，回到「待研判」", icon="🔄")
@@ -162,7 +162,7 @@ else:
         with _dc[_i]:
             _is_primary = (_label == "建議派查")
             if st.button(_label, key=f"decision::{_entity_id}::{_label}",
-                         use_container_width=True,
+                         width="stretch",
                          type=("primary" if _is_primary else "secondary")):
                 _new = case_status.set_status(_entity_id, _label, actor="inspector")
                 _fb_label = _DECISION_FEEDBACK.get(_label)

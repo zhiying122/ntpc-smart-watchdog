@@ -82,7 +82,7 @@ if result.selected:
         ("平均風險分", f"{alloc_df['風險分'].mean():.1f}", False, "本批派工平均"),
         ("涵蓋行政區", f"{alloc_df['行政區'].nunique()}", False, "本批派工分布"),
     ])
-    st.dataframe(alloc_df, use_container_width=True, hide_index=True)
+    st.dataframe(alloc_df, width="stretch", hide_index=True)
     st.download_button(
         "下載本期派工單（CSV）",
         data=alloc_df.to_csv(index=False).encode("utf-8-sig"),
@@ -122,7 +122,7 @@ elif sim_result.ranked:
     if sim_result.message:
         st.caption(sim_result.message)
     sim_df = dispatch.simulation_to_dataframe(sim_result, sim_lookup)
-    st.dataframe(sim_df, use_container_width=True, hide_index=True)
+    st.dataframe(sim_df, width="stretch", hide_index=True)
     st.markdown(
         f"<div style='color:{common.FAINT};font-size:.78rem;margin-top:6px;'>"
         "模擬分數為衍生預覽值，與系統基準風險分脫鉤；模擬不覆寫任何基準資料"

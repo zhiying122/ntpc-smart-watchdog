@@ -405,7 +405,7 @@ def render_login() -> None:
                 "公務識別碼 / 員工編號",
                 placeholder="請輸入公務帳號")
             password = st.text_input("密碼", type="password")
-            submitted = st.form_submit_button("登入", use_container_width=True)
+            submitted = st.form_submit_button("登入", width="stretch")
         if submitted:
             role = login_with_credentials(username, password)
             if role is None:
@@ -438,12 +438,12 @@ def render_login() -> None:
                 "公務職權。生產環境無此手動選擇；此處僅供評審快速檢視兩種公務視角。")
             sim_gov, sim_ins = st.columns(2)
             with sim_gov:
-                if st.button("模擬：局處決策者（科長）", use_container_width=True,
+                if st.button("模擬：局處決策者（科長）", width="stretch",
                              key="sim_login_gov"):
                     login(permissions.ROLE_GOV, username="government_demo")
                     st.rerun()
             with sim_ins:
-                if st.button("模擬：第一線稽查人員", use_container_width=True,
+                if st.button("模擬：第一線稽查人員", width="stretch",
                              key="sim_login_inspector"):
                     login(permissions.ROLE_INSPECTOR, username="inspector_demo")
                     st.rerun()

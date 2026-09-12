@@ -53,7 +53,7 @@ st.markdown(
 
 colb1, colb2 = st.columns([1, 3])
 with colb1:
-    do_refresh = st.button("重新整理資料", type="primary", use_container_width=True,
+    do_refresh = st.button("重新整理資料", type="primary", width="stretch",
                            help="強制清除快取並重新即時串接官方開放資料源")
 with colb2:
     st.caption(
@@ -87,11 +87,11 @@ if summary:
     with cA:
         common.section("機構基本資料（樣本）", "shield")
         st.dataframe(pd.DataFrame(summary["sample_inst"]),
-                     use_container_width=True, hide_index=True)
+                     width="stretch", hide_index=True)
     with cB:
         common.section("裁罰紀錄（樣本）", "alert")
         st.dataframe(pd.DataFrame(summary["sample_pen"]),
-                     use_container_width=True, hide_index=True)
+                     width="stretch", hide_index=True)
 
     # ---- 裁罰-機構實體比對（信心分級，責任 AI）----
     if "match_total" in summary:
@@ -117,7 +117,7 @@ if summary:
                 f"<div style='color:{common.INK_2};font-size:.84rem;margin:8px 0 4px;'>"
                 "高信心確認裁罰數最高的機構：</div>", unsafe_allow_html=True)
             st.dataframe(pd.DataFrame(summary["match_top"]),
-                         use_container_width=True, hide_index=True)
+                         width="stretch", hide_index=True)
         st.markdown(
             f"<div style='margin-top:6px;color:{common.FAINT};font-size:.78rem;'>"
             "僅高信心比對建議作為風險引擎的裁罰標籤來源；待人工確認項須經稽查"
