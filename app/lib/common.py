@@ -1032,24 +1032,40 @@ def active_alert_panel(df, max_rows=8):
         f"此為事前預警：接近門檻者提前示警，不必等惡化跨線才被動發現。</div>",
         unsafe_allow_html=True,
     )
+    st.markdown(
+        f"<div style='color:{FAINT};font-size:.78rem;margin:-6px 0 12px;"
+        f"padding-left:10px;border-left:2px solid {BORDER};'>"
+        f"定義說明：上方 KPI 卡「高風險機構」採<b>絕對分級</b>（風險分 ≥ 70），"
+        f"為固定政策門檻；本區「主動示警」採<b>相對百分位法</b>（同儕分布 + 標準差），"
+        f"用於事前預警。兩者定義不同，數字不一致屬預期，非計算錯誤。</div>",
+        unsafe_allow_html=True,
+    )
 
     if not alerts:
         empty_state("目前無達預警門檻的機構",
                     "全體機構風險相對平穩，維持例行監測。", icon_name="shield")
         return
 
+    # 「主要觸發原因」與「建議行動」為多字內容，覆寫表格預設的 nowrap／固定列高
+    # 讓文字完整換行顯示，不被截斷。
+    wrap_td = (
+        f"white-space:normal;height:auto;line-height:1.5;"
+        f"padding-top:9px;padding-bottom:9px;color:{INK_2};vertical-align:top;"
+    )
     rows = ""
     for a in alerts[:max_rows]:
-        reason = a.reasons[0] if a.reasons else "綜合風險相對偏高"
+        reason = "；".join(a.reasons) if a.reasons else "綜合風險相對偏高"
         rows += (
             "<tr>"
-            f"<td class='l'><span style='display:inline-block;width:8px;height:8px;"
+            f"<td class='l' style='vertical-align:top;'>"
+            f"<span style='display:inline-block;width:8px;height:8px;"
             f"border-radius:50%;background:{a.color};margin-right:8px;'></span>"
             f"{html.escape(a.level)}</td>"
-            f"<td class='l'>{html.escape(str(a.park_name))}</td>"
-            f"<td>{a.risk_total:.1f}</td>"
-            f"<td class='l' style='color:{INK_2};'>{html.escape(reason)}</td>"
-            f"<td class='l' style='color:{INK_2};'>{html.escape(a.recommended_action)}</td>"
+            f"<td class='l' style='vertical-align:top;'>{html.escape(str(a.park_name))}</td>"
+            f"<td style='vertical-align:top;'>{a.risk_total:.1f}</td>"
+            f"<td class='l' style='{wrap_td}min-width:200px;'>{html.escape(reason)}</td>"
+            f"<td class='l' style='{wrap_td}min-width:280px;'>"
+            f"{html.escape(a.recommended_action)}</td>"
             "</tr>"
         )
     st.markdown(

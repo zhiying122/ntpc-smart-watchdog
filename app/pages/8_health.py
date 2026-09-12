@@ -23,7 +23,6 @@ common.setup_page(
     header_title="系統健康檢查",
     subtitle="維運監控：資料新鮮度、動態資料源快取、核心引擎與資料完整性狀態。",
     module="健康檢查",
-    crumb="System Health",
     allowed_roles=[permissions.ROLE_GOV],
 )
 

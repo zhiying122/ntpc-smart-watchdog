@@ -34,7 +34,6 @@ common.setup_page(
     subtitle="動態串接官方開放資料源，整合分散的基本資料、收費與裁罰紀錄；"
              "並以標準化 KPI 量化系統成效。資料整合僅供決策支援。",
     module="資料整合",
-    crumb="Data Integration",
     allowed_roles=[permissions.ROLE_GOV],
 )
 
@@ -240,5 +239,23 @@ st.markdown(
     f"<div style='margin-top:8px;color:{common.FAINT};font-size:.78rem;'>"
     "標「示範估算」之 KPI 因缺乏經專家標註的真實違規標籤，以弱標籤（是否曾被"
     "裁罰）估算，僅供方法展示；正式導入後以專家標註與歷史驗證重新計算。</div>",
+    unsafe_allow_html=True,
+)
+
+# 指標讀法與樣本數誠實說明（避免 Recall@K=100% 被誤讀為模型完美）。
+_n_pos = int(has_penalty.sum())
+_k_val = min(10, n_total)
+st.markdown(
+    f"<div style='margin-top:12px;padding:10px 12px;border:1px solid "
+    f"{common.BORDER};border-left:3px solid {common.RISK['medium'][0]};"
+    f"border-radius:4px;color:{common.INK_2};font-size:.8rem;line-height:1.6;'>"
+    f"<b>指標讀法（三句話）：</b>"
+    f"① 風險偵測率與 Recall@K <b>同定義</b>（命中真實異常 ÷ 全部真實異常），"
+    f"分母都是「真實異常數」；Precision@K 分母不同，是「名單長度 K」。"
+    f"② 本批弱標籤（曾被裁罰）僅 <b>{_n_pos} 間</b>，K={_k_val} 已涵蓋全部 "
+    f"{_n_pos} 間，因此 Recall@K＝100% 是<b>名單夠長</b>的結果，"
+    f"<b>非模型零誤判</b>——誤判情形要看 Precision@K 與 FPR。"
+    f"③ 樣本數極小（正樣本 {_n_pos} 間），此組數字僅示範計算方法，"
+    f"不代表統計顯著的模型效能；擴大標註後才有評估意義。</div>",
     unsafe_allow_html=True,
 )

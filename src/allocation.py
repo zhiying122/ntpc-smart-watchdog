@@ -195,16 +195,27 @@ def _no_eligible_message(
 
 
 def _build_reason(inst: Institution, policy: Policy) -> str:
-    """產生含風險分數的分派理由（R3.10）。
+    """產生分派理由（R3.10）：以該機構特有的異常訊號摘要為主體。
 
-    註：R3.10（分派理由完整）之完整邊界由 Task 11.2 涵蓋；此處提供核心
-    非空理由字串，內容包含機構風險分數，供 R3.1–R3.3 輸出使用。
+    優先使用 `attributes["signal_summary"]`（由橋接層以風險因子邏輯算出的
+    每間特有異常訊號摘要，單一事實來源），使入選理由對每間都不同、能提供
+    比風險分數欄位更多的資訊。無訊號摘要時退回含分數的通用說明，仍保有
+    可解釋性與確定性排序的稽核依據。
+
+    註：R3.10（分派理由完整）之完整邊界由 Task 11.2 涵蓋。
     """
     score = policy.score_of(inst)
+    summary = inst.attributes.get("signal_summary") if inst.attributes else None
+    if isinstance(summary, str) and summary.strip():
+        return f"風險分 {score:g}｜主要風險訊號：{summary.strip()}"
+    if isinstance(summary, (list, tuple)) and len(summary) > 0:
+        joined = "；".join(str(s) for s in summary if str(s).strip())
+        if joined:
+            return f"風險分 {score:g}｜主要風險訊號：{joined}"
+    # 退回：無個別訊號時，仍提供含分數的可解釋、可稽核說明。
     return (
-        f"入選稽查名單：機構 {inst.park_id} 風險分數 {score:g}，"
-        f"依風險覆蓋最大化（風險分數總和最大）與確定性排序"
-        f"（風險分數由高至低、相同時機構識別碼由小至大）入選。"
+        f"風險分 {score:g}｜綜合風險相對偏高；依風險覆蓋最大化與確定性排序"
+        f"（分數由高至低、相同時機構識別碼由小至大）入選。"
     )
 
 

@@ -32,7 +32,6 @@ common.setup_page(
     subtitle="在有限稽查人力下產生最佳派查名單，並以情境模擬預覽政策影響。"
              "派工僅為稽查資源建議排序，不代表違法認定。",
     module="派工決策",
-    crumb="Dispatch",
     allowed_roles=[permissions.ROLE_GOV],
 )
 
