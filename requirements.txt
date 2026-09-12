@@ -22,12 +22,10 @@ boto3>=1.34.0
 python-dotenv>=1.0.0
 
 # 前端儀表板（組員線：介面與 AI 呈現）
-# Streamlit：1.63 移除 plotly_chart 的 **kwargs，消除前端棄用警告橫幅，但需 Python>=3.10。
-# 依執行環境的 Python 版本自動選版，讓 EC2(Py3.9) 與開發機(Py3.10+) 都裝得起來：
-#   - Python >= 3.10：裝 1.63+（含警告修正）
-#   - Python <  3.10：裝該環境可用的最高版（1.50.x），確保部署不失敗
-streamlit>=1.63.0; python_version >= "3.10"
-streamlit>=1.31.0; python_version <  "3.10"
+# Streamlit 1.63+ 仍支援 Python 3.9，但能避免較舊前端 bundle 在 iframe / component
+# re-render 時發出 integration/_stcore/health 與 unregistered ComponentInstance 警告。
+# 因此直接採用較新低版本，避免 EC2 依賴地圖頁面在 3.9 環境下被卡在舊版前端。
+streamlit>=1.63.0
 plotly>=5.18.0           # 雷達圖 / 互動圖表
 folium>=0.15.0           # Leaflet + OpenStreetMap 風險地圖
 streamlit-folium>=0.18.0 # 在 Streamlit 內嵌 folium 地圖

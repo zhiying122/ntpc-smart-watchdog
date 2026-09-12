@@ -208,7 +208,7 @@ if show_route and len(high) >= 2:
                 f'border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3);">{order}</div>')),
         ).add_to(fmap)
 
-st_folium(fmap, width=1120, height=560, returned_objects=[])
+st_folium(fmap, width=1120, height=560, returned_objects=[], key="gov_risk_map")
 
 # ---------- 圖例 ----------
 st.markdown(

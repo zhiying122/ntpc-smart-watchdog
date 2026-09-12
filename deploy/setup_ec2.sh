@@ -54,7 +54,15 @@ fi
 
 # --- 3. 建立 / 更新 Python 虛擬環境 ---
 echo "==> 建立虛擬環境 ${VENV} …"
-python3 -m venv "${VENV}"
+if command -v python3.11 >/dev/null 2>&1; then
+    PYTHON_BIN="python3.11"
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+else
+    echo "!! 找不到 Python 3.11 / 3.x，請先安裝 Python。"
+    exit 1
+fi
+"${PYTHON_BIN}" -m venv "${VENV}"
 # shellcheck disable=SC1091
 source "${VENV}/bin/activate"
 python -m pip install --upgrade pip wheel

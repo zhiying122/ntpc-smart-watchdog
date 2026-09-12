@@ -1021,7 +1021,8 @@ with left:
         ).add_to(_target)
 
     map_state = st_folium(fmap, height=460, use_container_width=True,
-                          returned_objects=["last_object_clicked"])
+                          returned_objects=["last_object_clicked"],
+                          key="public_map")
 
     if not searched:
         # 總覽模式：地圖已叢集顯示全新北市機構。給一句引導＋標記色說明。
