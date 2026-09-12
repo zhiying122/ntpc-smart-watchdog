@@ -31,10 +31,10 @@ common.setup_page(
     allowed_roles=[permissions.ROLE_GOV, permissions.ROLE_INSPECTOR],
 )
 
-# ---------- 角色一覽 ----------
-common.section("三種角色（RBAC）", "shield")
-cols = st.columns(3)
-for col, role in zip(cols, permissions.VALID_ROLES):
+# ---------- 角色一覽（公務後台：僅政府管理者與稽查人員）----------
+common.section("公務角色（RBAC）", "shield")
+cols = st.columns(len(permissions.GOV_ROLES))
+for col, role in zip(cols, permissions.GOV_ROLES):
     perm = permissions.get_role_permissions(role)
     with col:
         st.markdown(
@@ -50,7 +50,7 @@ for col, role in zip(cols, permissions.VALID_ROLES):
 
 # ---------- 資料權限矩陣表 ----------
 common.section("資料權限矩陣（角色 × 資料類別）", "dashboard")
-matrix = permissions.permission_matrix_table()
+matrix = permissions.permission_matrix_table_gov()
 
 # 以 HTML 表格呈現（沿用設計系統 .sw-table 樣式）。
 header_cells = "".join(f"<th>{c}</th>" if i > 0 else f"<th class='l'>{c}</th>"
@@ -81,7 +81,7 @@ st.caption(f"圖例：{permissions.FULL} 完整可見　·　{permissions.PARTIA
 common.section("責任 AI：權限在資料層控管", "check")
 common.callout(
     "風險資訊不是越多人看越好，而是由角色、職責與必要性決定誰可以看到。"
-    "家長模式在資料授權層取得的資料本身就不含 risk_total，"
+    "權限在資料授權層控管——不屬於職責範圍的風險資訊，系統於資料層即不提供，"
     "並非前端把分數算出來再隱藏。"
 )
 

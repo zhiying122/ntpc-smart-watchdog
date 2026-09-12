@@ -63,6 +63,12 @@ ROLE_PARENT = "parent_user"    # 家長
 
 VALID_ROLES: tuple[str, ...] = (ROLE_GOV, ROLE_INSPECTOR, ROLE_PARENT)
 
+# 公務後台角色（本 app 專供行政/公務人員使用）：僅政府管理者與稽查人員。
+# 家長角色（ROLE_PARENT）已切離為獨立公眾查詢網（public/公開查詢.py），
+# 其去識別化投影邏輯仍保留於本模組供該網使用，但公務後台的呈現層一律以
+# GOV_ROLES 為準，不顯示家長。VALID_ROLES 維持三角色以相容既有測試與公眾網。
+GOV_ROLES: tuple[str, ...] = (ROLE_GOV, ROLE_INSPECTOR)
+
 #: 三個 Demo 角色的可讀中文名（政府/企業級介面，不使用 emoji 裝飾）。
 ROLE_DISPLAY: dict[str, dict[str, str]] = {
     ROLE_GOV: {"name": "政府管理者", "emoji": ""},
@@ -134,6 +140,21 @@ def permission_matrix_table() -> pd.DataFrame:
     for category, vis in DATA_PERMISSION_MATRIX.items():
         row: dict[str, Any] = {"資料類別": category}
         for role in VALID_ROLES:
+            row[columns[role]] = vis.get(role, NONE)
+        rows.append(row)
+    return pd.DataFrame(rows, columns=["資料類別", *columns.values()])
+
+
+def permission_matrix_table_gov() -> pd.DataFrame:
+    """公務後台版權限矩陣：只含公務角色（政府/稽查），不顯示家長欄。
+
+    供 6_governance 頁使用。底層矩陣資料不變，僅呈現時過濾家長欄。
+    """
+    columns = {role: role_label(role) for role in GOV_ROLES}
+    rows: list[dict[str, Any]] = []
+    for category, vis in DATA_PERMISSION_MATRIX.items():
+        row: dict[str, Any] = {"資料類別": category}
+        for role in GOV_ROLES:
             row[columns[role]] = vis.get(role, NONE)
         rows.append(row)
     return pd.DataFrame(rows, columns=["資料類別", *columns.values()])

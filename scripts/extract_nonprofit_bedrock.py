@@ -47,10 +47,11 @@ OUT_CSV = os.path.join(ROOT, "data", "processed", "nonprofit_financials_bedrock.
 _FILENAME_RE = re.compile(r"^(N\d+)([^_]+)_(\d{3})學年度")
 _PROMPT = (
     "這是幼兒園的『收支餘絀表』掃描頁。表格欄位為預算數(a)、決算數(b)、差異(c)。"
-    "請讀出『決算數(b)』欄的三個總計數字，以純 JSON 回傳（不要任何多餘文字或說明）：\n"
+    "請讀出『決算數(b)』欄的數字，以純 JSON 回傳（不要任何多餘文字或說明）：\n"
     '{"income_total": 收入合計決算數, "expense_total": 支出合計決算數, '
-    '"surplus": 本期賸餘或短絀決算數}\n'
-    "數字去除逗號與貨幣符號；短絀（負數）用負號表示。找不到的欄位填 null。"
+    '"surplus": 本期賸餘或短絀決算數, "tuition": 學雜費收入決算數}\n'
+    "數字去除逗號與貨幣符號；短絀（負數）用負號表示。"
+    "學雜費收入若表中未單列則填 null。找不到的欄位填 null。"
 )
 
 
@@ -137,10 +138,12 @@ def main():
             inc = res.get("income_total")
             exp = res.get("expense_total")
             sur = res.get("surplus")
+            tui = res.get("tuition")
             data = {
                 "park_id": code, "park_name": f"新北市{name}非營利幼兒園",
                 "park_type": "非營利", "year": year,
                 "income_actual": inc, "expense_actual": exp, "surplus": sur,
+                "tuition_actual": tui,
                 "extraction_confidence": _confidence(inc, exp, sur),
                 "data_source": "非營利園財務報告（Bedrock 視覺抽取）",
             }

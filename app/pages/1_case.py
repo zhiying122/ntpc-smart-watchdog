@@ -86,9 +86,16 @@ if _npfin is not None and _npfin.get("income_actual") is not None:
     _inc = _npfin.get("income_actual")
     _exp = _npfin.get("expense_actual")
     _sur = _npfin.get("surplus")
+    _tui = _npfin.get("tuition_actual")
     _conf = _npfin.get("extraction_confidence", "")
     _ratio = (_exp / _inc) if (_inc and _exp) else None
     _ratio_txt = f"　·　收支比 {_ratio:.3f}" if _ratio else ""
+    _tui_valid = _tui is not None and str(_tui).lower() != "nan"
+    try:
+        _tui_valid = _tui_valid and float(_tui) > 0
+    except (TypeError, ValueError):
+        _tui_valid = False
+    _tui_txt = f"　·　學雜費收入 <b>{float(_tui):,.0f}</b> 元" if _tui_valid else ""
     _conf_txt = "勾稽通過（高信心）" if _conf == "high" else "待複核"
     st.markdown(
         f"<div class='sw-callout' style='border-left-color:{common.PRIMARY};margin-top:8px;'>"
@@ -96,7 +103,7 @@ if _npfin is not None and _npfin.get("income_actual") is not None:
         f"（AWS Bedrock 視覺抽取自財報 PDF · {_conf_txt}）：<br>"
         f"收入 <b>{_inc:,.0f}</b> 元　·　支出 <b>{_exp:,.0f}</b> 元　·　"
         f"餘絀 <b style='color:{common.RISK['high'][0] if (_sur or 0) < 0 else common.RISK['normal'][0]};'>"
-        f"{_sur:,.0f}</b> 元{_ratio_txt}</div>",
+        f"{_sur:,.0f}</b> 元{_ratio_txt}{_tui_txt}</div>",
         unsafe_allow_html=True,
     )
 
