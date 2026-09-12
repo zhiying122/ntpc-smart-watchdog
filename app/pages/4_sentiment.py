@@ -1,11 +1,15 @@
 """
-輿情分析（小樣本示範）
+官方公開信號分析（Official Public Signals）
 ======================================
-抓少量幼兒園相關網路評論，用簡易情緒分析標記正負面，
-負面比例併入 score_sentiment（輿情分）。範圍刻意小，為加分亮點。
+以官方公開資料——裁罰紀錄與評鑑結果（全國教保資訊網）——作為
+機構關注信號來源，依 Risk_Taxonomy 歸類並標記嚴重度。
 
-Demo 版用內建小樣本 + 關鍵詞情緒法（可離線跑）。
-接上 Bedrock 後可改用 Claude 做更準的情緒判讀，架構相同。
+為何用官方資料而非社群評論：
+- 公信力最高：官方裁罰/評鑑是政府稽查系統最對味的訊號來源。
+- 零成本、免金鑰、無爬蟲法遵風險。
+- 每筆信號皆可追溯至官方來源（Evidence_Chain）。
+
+責任邊界：本頁僅呈現官方已公開的事實，不作違法/舞弊認定。
 """
 import os
 import sys
@@ -13,15 +17,17 @@ import sys
 import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from lib import auth  # noqa: E402
 from lib import common  # noqa: E402
 from lib import permissions  # noqa: E402
+from src import official_signals as osig  # noqa: E402
 
 common.setup_page(
-    page_title="Fiscalint｜輿情分析",
-    header_title="輿情分析",
-    subtitle="網路評論情緒分析（離線示範，不計入風險分）。展示架構可規模化至全體機構的能力。",
-    module="輿情分析",
+    page_title="Fiscalint｜官方公開信號",
+    header_title="官方公開信號分析",
+    subtitle="以裁罰紀錄與評鑑結果（全國教保資訊網）呈現機構關注信號，依風險類別歸類。",
+    module="官方公開信號",
     allowed_roles=[permissions.ROLE_GOV, permissions.ROLE_INSPECTOR],
 )
 
@@ -29,99 +35,95 @@ common.setup_page(
 df = permissions.authorize_dataframe(common.require_data(),
                                      auth.get_current_role() or permissions.ROLE_GOV)
 
-# ---------- 內建小樣本評論（示範用，實際應由爬蟲取得）----------
-SAMPLE_COMMENTS = {
-    "新北市立林口幼兒園": [
-        ("老師很有耐心，孩子很喜歡上學", "pos"),
-        ("聽說收費有爭議，家長群組在討論", "neg"),
-        ("環境還算乾淨，但人數好像超收", "neg"),
-        ("報名很難抽，代表很多人想讀", "pos"),
-    ],
-    "新北市立深坑幼兒園": [
-        ("財務公開不夠透明，希望改善", "neg"),
-        ("餐點普通，設施有點舊", "neg"),
-        ("交通方便，老師親切", "pos"),
-    ],
-    "新北市立板橋幼兒園": [
-        ("口碑很好，老師專業", "pos"),
-        ("活動豐富，孩子成長很多", "pos"),
-        ("報名秒殺，很搶手", "pos"),
-    ],
-}
-
-NEG_WORDS = ["爭議", "超收", "不透明", "舊", "投訴", "缺失", "違規", "退費", "髒"]
-POS_WORDS = ["耐心", "喜歡", "親切", "專業", "乾淨", "方便", "豐富", "口碑", "搶手"]
-
-
-def score_comment(text):
-    neg = sum(w in text for w in NEG_WORDS)
-    pos = sum(w in text for w in POS_WORDS)
-    if neg > pos:
-        return "neg"
-    if pos > neg:
-        return "pos"
-    return "neu"
-
-
-LABEL_TEXT = {"pos": "正面", "neg": "負面", "neu": "中性"}
+LABEL_TEXT = {"pos": "正向", "neg": "負向關注", "neu": "中性"}
 LABEL_COLOR = {"pos": common.LEVEL_COLOR["低"], "neg": common.LEVEL_COLOR["高"],
                "neu": common.MUTED}
+LABEL_BG = {"pos": common.LEVEL_BG["低"], "neg": common.LEVEL_BG["高"], "neu": "#EEF0F3"}
+SEVERITY_COLOR = {
+    osig.SEVERITY_MAJOR: common.LEVEL_COLOR["高"],
+    osig.SEVERITY_MODERATE: common.LEVEL_COLOR["中"],
+    osig.SEVERITY_MINOR: common.LEVEL_COLOR["低"],
+    "一般": common.MUTED,
+}
 
-park = st.selectbox("選擇機構", list(SAMPLE_COMMENTS.keys()))
-comments = SAMPLE_COMMENTS[park]
+# ---------- 機構選擇 ----------
+park_names = sorted(
+    n for n in df["park_name"].dropna().astype(str).unique() if n.strip()
+)
+if not park_names:
+    common.empty_state("目前無機構資料", "資料尚未載入。", icon_name="database")
+    st.stop()
 
-common.section(f"{park}　網路評論情緒分析", "sentiment")
+park = st.selectbox("選擇機構", park_names)
+row = df[df["park_name"].astype(str) == park].iloc[0].to_dict()
+report = osig.build_report(row)
 
-neg_n = sum(1 for t, _ in comments if score_comment(t) == "neg")
-total_n = len(comments)
-neg_ratio = neg_n / total_n if total_n else 0
+common.section(f"{park}　官方公開信號", "sentiment")
 
 common.kpi_band([
-    ("評論則數", f"{total_n}"),
-    ("負面則數", f"{neg_n}"),
-    ("負面比例", f"{neg_ratio*100:.0f}%", neg_ratio >= 0.5),
+    ("信號則數", f"{report.total_count}"),
+    ("負向關注則數", f"{report.negative_count}"),
+    ("負向比例", f"{report.negative_ratio*100:.0f}%", report.negative_ratio >= 0.5),
+    ("裁罰次數", f"{report.penalty_count}"),
 ])
 
-common.section("評論明細", "sentiment")
-LABEL_BG = {"pos": common.LEVEL_BG["低"], "neg": common.LEVEL_BG["高"], "neu": "#EEF0F3"}
-body = ""
-for text, _ in comments:
-    pred = score_comment(text)
-    tag = (f"<span class='sw-badge' style='background:{LABEL_BG[pred]};"
-           f"color:{LABEL_COLOR[pred]};'>{LABEL_TEXT[pred]}</span>")
-    body += f"<tr><td class='l'>{text}</td><td class='l'>{tag}</td></tr>"
-st.markdown(
-    "<table class='sw-table'><thead><tr>"
-    "<th class='l'>評論內容</th><th class='l'>情緒</th>"
-    f"</tr></thead><tbody>{body}</tbody></table>",
-    unsafe_allow_html=True,
-)
+# ---------- 信號明細表 ----------
+common.section("信號明細（含來源與風險類別）", "sentiment")
+if report.total_count == 0:
+    common.empty_state("查無官方公開信號",
+                       "該機構在裁罰與評鑑欄位查無公開資料。", icon_name="inbox")
+else:
+    body = ""
+    for s in report.signals:
+        tag = (f"<span class='sw-badge' style='background:{LABEL_BG[s.sentiment]};"
+               f"color:{LABEL_COLOR[s.sentiment]};'>{LABEL_TEXT[s.sentiment]}</span>")
+        sev_color = SEVERITY_COLOR.get(s.severity, common.MUTED)
+        sev = (f"<span style='color:{sev_color};font-weight:600;'>{s.severity}</span>")
+        body += (
+            f"<tr><td class='l'>{s.text}</td>"
+            f"<td class='l'>{s.category}</td>"
+            f"<td class='l'>{sev}</td>"
+            f"<td class='l'>{tag}</td>"
+            f"<td class='l' style='color:{common.MUTED};font-size:.82rem;'>{s.source}</td></tr>"
+        )
+    st.markdown(
+        "<table class='sw-table'><thead><tr>"
+        "<th class='l'>信號內容</th><th class='l'>風險類別</th>"
+        "<th class='l'>嚴重度</th><th class='l'>關注傾向</th>"
+        "<th class='l'>資料來源</th>"
+        f"</tr></thead><tbody>{body}</tbody></table>",
+        unsafe_allow_html=True,
+    )
 
-# 情緒色點圖例
+# 關注傾向圖例
 st.markdown(
-    "<div style='margin-top:10px;color:%s;font-size:.82rem;'>情緒判定：%s&nbsp;&nbsp;%s&nbsp;&nbsp;%s</div>"
+    "<div style='margin-top:10px;color:%s;font-size:.82rem;'>關注傾向：%s&nbsp;&nbsp;%s&nbsp;&nbsp;%s</div>"
     % (common.MUTED,
-       common.dot(LABEL_COLOR["pos"], "正面"),
-       common.dot(LABEL_COLOR["neg"], "負面"),
+       common.dot(LABEL_COLOR["pos"], "正向"),
+       common.dot(LABEL_COLOR["neg"], "負向關注"),
        common.dot(LABEL_COLOR["neu"], "中性")),
     unsafe_allow_html=True,
 )
 
-common.callout(f"此頁為<b>離線示範</b>（內建樣本評論 + 關鍵詞情緒法），"
-               f"負面比例約 <b>{neg_ratio*100:.0f}%</b>。"
-               "目前<b>不計入</b>總風險分——真實網路輿情資料源尚未接入，"
-               "為避免以示範值稀釋真實風險分。接入真實輿情後可再納入計分。")
+common.callout(
+    "本頁信號全數取自<b>官方公開資料</b>（全國教保資訊網之裁罰紀錄與評鑑結果），"
+    "每筆皆標示<b>資料來源</b>可供追溯。裁罰與評鑑已透過各自分項計入總風險分，"
+    "本頁提供依<b>風險類別與嚴重度</b>拆解的可解釋視圖。"
+    "本頁僅呈現官方已公開之事實，<b>不構成</b>對機構違法或不合格之認定。"
+)
 
 with st.expander("這個功能如何規模化（架構說明）"):
     st.markdown(
         """
-        目前為小樣本離線示範（內建評論 + 關鍵詞情緒法），驗證流程可跑。
+        目前以新北市立園的官方裁罰與評鑑資料示範，驗證「官方公開信號 → 風險類別歸類
+        → 可解釋呈現」的流程可跑。
 
         規模化路徑（架構相同、資料量放大）：
-        1. 爬蟲定期抓 Google 評論、地方社團、新聞，存入資料湖（S3）
-        2. 用 AWS Bedrock（Claude）做情緒判讀，比關鍵詞法更準、能理解語意
-        3. 彙整每園負面比例，接入後即可納入總風險分計算並重新分配權重
+        1. 定期同步全國教保資訊網之裁罰紀錄、評鑑結果、收費明細（官方公開、免金鑰）。
+        2. 用 AWS Bedrock（Claude）對裁罰處分書全文做語意歸類與嚴重度判讀，
+           比關鍵詞法更準、能理解裁罰情節。
+        3. 選用擴充：家長／社群輿情微弱訊號（受 15 分上限約束），架構已於規格預留。
 
-        輿情是加分亮點；目前總風險分僅由已接入的真實資料（財務、裁罰、評鑑）組成。
+        官方資料公信力最高，是政府稽查系統最對味的信號來源。
         """
     )
