@@ -91,12 +91,15 @@ def test_radar_breakdown_contributions_sum_equals_total():
     assert radar.not_illegality_notice
 
 
-def test_radar_sentiment_dimension_zero_weight():
+def test_radar_sentiment_dimension_weighted():
+    """輿情已接入真實公開新聞爬蟲 → 正式計入雷達圖（forensic 檔權重 0.10）。
+
+    _entity() 未帶 score_sentiment/neg_ratio → 走缺值中性（score_sentiment=20），
+    貢獻 = 0.10 × 20 = 2.0（缺值中性不放大風險，責任 AI）。"""
     radar = inspector.radar_breakdown(_entity())
     sentiment = [d for d in radar.dimensions if d.key == "sentiment"][0]
-    # 輿情未接入真實資料源 → 權重 0、貢獻 0，不影響總分。
-    assert sentiment.weight == 0.0
-    assert sentiment.contribution == 0.0
+    assert sentiment.weight == pytest.approx(0.10)
+    assert sentiment.contribution == pytest.approx(2.0)
 
 
 # --------------------------------------------------------------------------

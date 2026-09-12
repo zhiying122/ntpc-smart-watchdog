@@ -80,10 +80,13 @@ build/
 # 比賽提供的原始資料集資料夾
 E_教育局-資料集/
 E_教育局-命題文件/
-data/raw/
+data/raw/*
 data/interim/
 *.pdf
 !docs/**/*.pdf
+# 例外：司法／行政處分結構化樣本（公開判決摘要之整理，無個資）。
+# EC2 部署需此檔供司法事實層查詢，故納入版控（原始個資檔仍由 data/raw/* 排除）。
+!data/raw/judicial_records.json
 
 # OCR / 拆頁工具的產出（含財報數字、可能個資，絕不上傳）
 data/derived/
@@ -107,6 +110,9 @@ data/processed/*.json
 !data/processed/kindergartens_roster.csv
 !data/processed/nonprofit_financials_bedrock.csv
 !data/processed/geocoded.csv
+# 輿情負面度（新聞 RSS + PTT 公開看板之衍生；僅標題/連結/負面比例，無個資）。
+# EC2 部署需此檔才能讓輿情分項計入總分，故納入版控。
+!data/processed/sentiment.csv
 
 # 動態資料連接器的本地快取（由官方開放資料即時抓取，可重新產生，不進版控）
 data/cache/
