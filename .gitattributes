@@ -1,0 +1,10 @@
+# Shell 腳本一律使用 LF 換行（在 Windows 上開發、於 Linux EC2 執行時，
+# CRLF 會導致 `set -euo pipefail` 等指令解析失敗）。
+*.sh text eol=lf
+
+# systemd unit 檔亦使用 LF（於 Linux 讀取）。
+*.service text eol=lf
+
+# 一般文字檔交由 git 自動處理；避免對二進位/資料檔動手。
+*.py text
+*.md text
