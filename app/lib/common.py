@@ -235,6 +235,31 @@ def penalty_for(park_name):
     return penalty_lookup().get(_norm_park_name(park_name))
 
 
+NONPROFIT_FIN_CSV = os.path.join(
+    ROOT, "data", "processed", "nonprofit_financials_bedrock.csv")
+
+
+@st.cache_data(show_spinner=False)
+def load_nonprofit_financials():
+    """非營利園真實財務（AWS Bedrock 視覺抽取自財報 PDF）；無檔回 None。
+
+    每列一間非營利園之收入/支出/餘絀決算數，附抽取信心（high=勾稽通過）。
+    此為唯讀展示層，不覆寫既有風險分計算。
+    """
+    if not os.path.exists(NONPROFIT_FIN_CSV):
+        return None
+    return pd.read_csv(NONPROFIT_FIN_CSV)
+
+
+def nonprofit_financials_for(park_id):
+    """查某非營利園的真實財務（以 park_id 對應）；無則回 None。"""
+    df = load_nonprofit_financials()
+    if df is None or len(df) == 0:
+        return None
+    hit = df[df["park_id"].astype(str) == str(park_id)]
+    return hit.iloc[0].to_dict() if len(hit) else None
+
+
 MOE_YEARLY_CSV = os.path.join(ROOT, "data", "external", "moe_ntpc_yearly.csv")
 
 

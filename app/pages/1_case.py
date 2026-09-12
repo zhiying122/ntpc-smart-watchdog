@@ -78,6 +78,28 @@ if _pen is not None:
         unsafe_allow_html=True,
     )
 
+# ---------- 非營利園真實財報決算（AWS Bedrock 視覺抽取，唯讀展示）----------
+# 針對非營利園，附上自財報 PDF 以 Bedrock 抽取之真實 113 學年決算數（收入/
+# 支出/餘絀），並自我勾稽（收入−支出≈餘絀）。此為資料佐證層，不改風險分。
+_npfin = common.nonprofit_financials_for(row.get("park_id"))
+if _npfin is not None and _npfin.get("income_actual") is not None:
+    _inc = _npfin.get("income_actual")
+    _exp = _npfin.get("expense_actual")
+    _sur = _npfin.get("surplus")
+    _conf = _npfin.get("extraction_confidence", "")
+    _ratio = (_exp / _inc) if (_inc and _exp) else None
+    _ratio_txt = f"　·　收支比 {_ratio:.3f}" if _ratio else ""
+    _conf_txt = "勾稽通過（高信心）" if _conf == "high" else "待複核"
+    st.markdown(
+        f"<div class='sw-callout' style='border-left-color:{common.PRIMARY};margin-top:8px;'>"
+        f"<b style='color:{common.PRIMARY};'>113 學年度真實財報決算</b>"
+        f"（AWS Bedrock 視覺抽取自財報 PDF · {_conf_txt}）：<br>"
+        f"收入 <b>{_inc:,.0f}</b> 元　·　支出 <b>{_exp:,.0f}</b> 元　·　"
+        f"餘絀 <b style='color:{common.RISK['high'][0] if (_sur or 0) < 0 else common.RISK['normal'][0]};'>"
+        f"{_sur:,.0f}</b> 元{_ratio_txt}</div>",
+        unsafe_allow_html=True,
+    )
+
 # ---------- 稽查決策條（行動優先）----------
 # 把「下決定」放在使用者一進頁面就看得到的位置：一句話結論 + 當前狀態 +
 # 三顆決策按鈕。決策即時寫入 case_status（跨頁共用、可持久化），並同步送出
