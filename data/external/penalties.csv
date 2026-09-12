@@ -1,4 +1,4 @@
-park_name,penalty_count,penalty_reason,eval_grade
+﻿park_name,penalty_count,penalty_reason,eval_grade
 新北市立林口幼兒園,2,超收幼生與收費違規,乙
 新北市立三芝幼兒園,1,師生比不符規定,良
 新北市立板橋幼兒園,0,,優
@@ -17,3 +17,6 @@ park_name,penalty_count,penalty_reason,eval_grade
 新北市立八里幼兒園,0,,優
 新北市立萬里幼兒園,0,,良
 新北市立烏來幼兒園,0,,優
+新北市板橋區板橋國民小學附設幼兒園,2,超收幼生與收費違規,乙
+新北市三重區三重國民小學附設幼兒園,1,設施安全缺失,良
+新北市新莊區新莊國民小學附設幼兒園,0,,優

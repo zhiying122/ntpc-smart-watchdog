@@ -513,6 +513,20 @@ def build(df):
     df["score_penalty"] = df.apply(score_penalty, axis=1)
     df["score_eval"] = df["eval_grade"].apply(score_eval)
 
+    # 評分檔（R26）：每列自動判定 forensic（有獨立財報）/ behavioral（無財報，
+    # 如國小附設幼兒園）。目前資料皆有財報 → 全為 forensic；未來納入附幼
+    # （無 income/expense/surplus）時將自動標為 behavioral，套用行為評分檔權重。
+    # 此為確定性判定，不需人工名單；資料若已帶 scoring_profile 欄位則尊重之。
+    if "scoring_profile" not in df.columns:
+        df["scoring_profile"] = df.apply(resolve_scoring_profile, axis=1)
+    else:
+        df["scoring_profile"] = df.apply(
+            lambda r: r["scoring_profile"]
+            if r.get("scoring_profile") in (PROFILE_FORENSIC, PROFILE_BEHAVIORAL)
+            else resolve_scoring_profile(r),
+            axis=1,
+        )
+
     df["risk_total"] = (
         WEIGHTS["financial"] * df["score_financial"]
         + WEIGHTS["penalty"] * df["score_penalty"]
@@ -571,6 +585,9 @@ def main(src=None):
             "fund_recon_score", "fund_recon_consistent", "fund_continuity_score",
             "penalty_count", "penalty_reason", "penalty_category", "eval_grade",
             "score_financial", "score_penalty", "score_eval",
+            # 評分檔別（R26）：forensic（有財報）/ behavioral（無財報附幼），
+            # 附加欄位不破壞既有載入契約。
+            "scoring_profile",
             "risk_total", "risk_level", "risk_level_abs",
             # 白盒 score() 附加欄位：四級絕對等級 + 責任 AI 聲明（附加於後，
             # 不破壞既有三級 risk_level 與載入契約）。

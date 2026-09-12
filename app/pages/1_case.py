@@ -64,6 +64,25 @@ common.case_header(row)
 
 # ---------- 風險評估雷達 / 分項加權貢獻（R5.1, R5.2）----------
 common.section("風險評估", "shield")
+
+# 評分檔別（R26）：財務鑑識園（有決算）/ 行為監測園（無獨立財報，如國小附設幼兒園）。
+# 行為監測園併同顯示揭露訊息，讓稽查員得知該分數所依據之資料面向（R26.5, R26.6）。
+_profile_label = ("財務鑑識園（具獨立財務決算）"
+                  if radar.scoring_profile == "forensic"
+                  else "行為監測園（無獨立財報）")
+_profile_color = common.PRIMARY if radar.scoring_profile == "forensic" else common.RISK["medium"][0]
+st.markdown(
+    f"<div style='display:inline-block;padding:3px 12px;border-radius:999px;"
+    f"border:1px solid {_profile_color};color:{_profile_color};font-size:.78rem;"
+    f"font-weight:600;margin-bottom:8px;'>評分檔：{_profile_label}</div>",
+    unsafe_allow_html=True,
+)
+if radar.profile_notice:
+    st.markdown(
+        f"<div class='sw-callout' style='margin-bottom:12px;'>{radar.profile_notice}</div>",
+        unsafe_allow_html=True,
+    )
+
 col_radar, col_action = st.columns([1.3, 1], gap="large")
 
 with col_radar:
