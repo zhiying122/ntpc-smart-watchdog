@@ -394,3 +394,49 @@ def test_media_rss_network_error_returns_empty(monkeypatch):
     monkeypatch.setattr(nc.requests, "get", _boom)
     assert nc._fetch_media_rss("自由時報", "http://x", "某某幼兒園", "板橋區",
                                timeout=5, reference=REF) == []
+
+
+# ===========================================================================
+# public_dataset：教育部全國教保資訊網裁罰與政府財務透明度整合測試
+# ===========================================================================
+from lib import public_dataset as pds  # noqa: E402
+
+
+def test_public_dataset_integrates_ntpc_penalty():
+    """驗證全國教保資訊網裁罰資料 (ntpc_penalty.csv) 正確整合至家長端資料集。"""
+    ds = pds.load_public_dataset(prefer_cache=True)
+    df = ds.df
+    assert df is not None and len(df) > 0
+    # 確認幼祥幼兒園（在 ntpc_penalty.csv 查有裁罰）被正確標記為有裁罰
+    hit = df[df["park_name"].str.contains("幼祥")]
+    assert len(hit) > 0
+    row = hit.iloc[0]
+    assert row["penalty_flag"] == "有"
+    assert row["penalty_count"] >= 1
+
+
+def test_penalty_details_for_park_name_fallback():
+    """驗證當負責人姓名未對應時，以園名可回傳教育部全國教保資訊網官方公告裁罰。"""
+    idx = {"新北市私立幼祥幼兒園": [{
+        "date": "主管機關公告列管",
+        "punishment": "違反幼兒教育及照顧法公告處分",
+        "law": "幼兒教育及照顧法",
+        "subject_type": "機構列管",
+    }]}
+    recs = pds.penalty_details_for(owner="", penalty_flag="有", penalty_index=idx, park_name="新北市私立幼祥幼兒園")
+    assert len(recs) == 1
+    assert "幼兒教育及照顧法" in recs[0]["law"]
+
+
+def test_load_financial_transparency_data():
+    """驗證非營利與公立幼兒園決算資料（政府資料開放平臺）正確載入。"""
+    fin_map = pds.load_financial_transparency_data()
+    assert len(fin_map) > 0
+    # 檢查新月非營利幼兒園是否有決算資訊
+    k = pds._norm_name("新北市新月非營利幼兒園")
+    assert k in fin_map
+    info = fin_map[k]
+    assert info["total_income"] > 0
+    assert info["total_expense"] > 0
+    assert "決算書" in info["source"]
+

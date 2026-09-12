@@ -509,14 +509,22 @@ def _merge_on_normalized(left, right, right_cols):
     作法：兩邊各建臨時鍵 `_merge_key = normalize_name(park_name)`，以此 left-merge，
     再丟棄臨時鍵。right 依 `_merge_key` 去重（keep first），避免名稱變體造成重複列。
     right_cols 不含 park_name（left 已有），只帶要併入的資料欄位。
+    若 left 已存在同名欄位，以 left 既有值為主、right 補缺漏，避免產生 _x/_y 後綴。
     """
     left = left.copy()
     right = right.copy()
     left["_merge_key"] = left["park_name"].map(_norm_key)
     right["_merge_key"] = right["park_name"].map(_norm_key)
     right = right.drop_duplicates("_merge_key", keep="first")
-    keep = ["_merge_key"] + [c for c in right_cols if c in right.columns]
-    merged = left.merge(right[keep], on="_merge_key", how="left")
+
+    common_cols = [c for c in right_cols if c in left.columns and c in right.columns]
+    new_cols = [c for c in right_cols if c not in left.columns and c in right.columns]
+
+    keep = ["_merge_key"] + common_cols + new_cols
+    merged = left.merge(right[keep], on="_merge_key", how="left", suffixes=("", "_right"))
+    for c in common_cols:
+        merged[c] = merged[c].fillna(merged[f"{c}_right"])
+        merged = merged.drop(columns=[f"{c}_right"])
     return merged.drop(columns=["_merge_key"])
 
 
@@ -543,6 +551,32 @@ def _merge_external(df):
         if "penalty_records" in pen.columns:
             pen_cols.append("penalty_records")
         df = _merge_on_normalized(df, pen, pen_cols)
+
+    # 全國教保資訊網真實裁罰（ntpc_penalty.csv，https://ap.ece.moe.edu.tw/webecems/punishSearch.aspx）
+    ntpc_pen_path = os.path.join(EXTERNAL, "ntpc_penalty.csv")
+    if os.path.exists(ntpc_pen_path):
+        try:
+            ntpc_pen = pd.read_csv(ntpc_pen_path)
+            ntpc_pen["_norm"] = ntpc_pen["park_name"].map(_norm_key)
+            pen_map = ntpc_pen.drop_duplicates("_norm").set_index("_norm").to_dict("index")
+            for idx, r in df.iterrows():
+                k = _norm_key(r.get("park_name"))
+                if k in pen_map:
+                    pinfo = pen_map[k]
+                    cur_cnt = r.get("penalty_count")
+                    pstatus = str(pinfo.get("status") or "")
+                    if pd.isna(cur_cnt) or cur_cnt == 0:
+                        if "廢止" in pstatus:
+                            df.at[idx, "penalty_count"] = 3
+                            df.at[idx, "penalty_reason"] = "情節重大經主管機關廢止設立許可"
+                        else:
+                            df.at[idx, "penalty_count"] = 1
+                            if not df.at[idx, "penalty_reason"]:
+                                df.at[idx, "penalty_reason"] = "主管機關公告違規裁罰（全國教保資訊網）"
+                    if ("district" not in df.columns or pd.isna(df.at[idx, "district"])) and pinfo.get("area"):
+                        df.at[idx, "district"] = pinfo.get("area")
+        except Exception:
+            pass
     # 座標（以正規化名稱為鍵）
     geo_path = os.path.join(ROOT, "data", "processed", "geocoded.csv")
     if os.path.exists(geo_path):

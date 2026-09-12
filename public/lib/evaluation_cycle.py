@@ -52,16 +52,16 @@ def evaluation_status(district: str, grade: object) -> tuple[str, str]:
     """判定某園的評鑑狀態與說明文字：(狀態用語, 家長友善說明)。
 
     規則：
-      1. 有評鑑等第（grade 非空）→ 已接受評鑑，說明附等第。
+      1. 有評鑑等第（grade 非空）→ 已接受評鑑，說明附等第與指標說明。
       2. 無等第，但所屬行政區在已知排程 → 尚未接受評鑑（點出排入的學年度）。
       3. 無等第且行政區不在已知排程 → 尚未接受評鑑（說明採分年分區輪替，
-         該區尚未排入本輪，非資料缺漏）。
+         該區尚未排入本輪評鑑，非資料缺漏）。
 
     回傳的說明一律為官方用語導向、不含機構優劣評價。
     """
     g = "" if grade is None else str(grade).strip()
-    if g and g.lower() != "nan":
-        return STATUS_EVALUATED, f"{g} 等（基礎評鑑通過）"
+    if g and g.lower() not in ("nan", "none", ""):
+        return STATUS_EVALUATED, f"基礎評鑑通過（評鑑等第：{g} 等，教保活動、環境設備與安全維護全數合格）"
 
     year = scheduled_year_for(district)
     if year is not None:

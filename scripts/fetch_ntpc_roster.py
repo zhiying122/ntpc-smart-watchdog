@@ -139,11 +139,22 @@ def build() -> pd.DataFrame:
         scored_by_key[_norm_name(str(r["park_name"]))] = r
     print(f"[i] 已評分機構（深度層）：{len(scored)} 間")
 
+    # 載入全國教保資訊網真實裁罰（ntpc_penalty.csv），供行為監測園（behavioral）計分
+    pen_csv = os.path.join(ROOT, "data", "external", "ntpc_penalty.csv")
+    pen_by_key = {}
+    if os.path.exists(pen_csv):
+        pen_df = pd.read_csv(pen_csv)
+        for _, pr in pen_df.iterrows():
+            pen_by_key[_norm_name(str(pr["park_name"]))] = pr
+        print(f"[i] 全國教保資訊網裁罰紀錄：{len(pen_by_key)} 間機構有案")
+
     rows = []
     used_scored_keys = set()
 
-    # (1) 先放名冊中的機構：能對應到已評分者標 scored（沿用真實分數與座標），
-    #     其餘標 roster_only（僅基本資料、風險留空）。
+    # (1) 先放名冊中的機構：
+    #     - 能對應到已評分者標 scored（沿用深度層真實財務與裁罰分數）
+    #     - 對應到真實裁罰者標 scored，套用行為監測檔（behavioral：裁罰50%+評鑑30%+輿情20%）進行計算
+    #     - 其餘標 roster_only（僅基本資料、無裁罰與財報者風險留空）。
     for i, r in raw.iterrows():
         name = r["park_name"]
         district = r["district"]
@@ -153,6 +164,8 @@ def build() -> pd.DataFrame:
 
         key = _norm_name(name)
         srow = scored_by_key.get(key)
+        prow = pen_by_key.get(key)
+
         if srow is not None:
             used_scored_keys.add(key)
             lat = srow.get("lat")
@@ -168,6 +181,35 @@ def build() -> pd.DataFrame:
                 "data_status": "scored",
                 "risk_total": srow.get("risk_total"),
                 "risk_level": srow.get("risk_level"),
+                "scoring_profile": srow.get("scoring_profile", "forensic"),
+                "score_penalty": srow.get("score_penalty"),
+                "penalty_count": srow.get("penalty_count", 0),
+            })
+        elif prow is not None:
+            # 命中真實裁罰名單但無財報：套用 behavioral 行為評分檔計算真實風險分
+            lat, lng = _roster_coord(name, district)
+            pstatus = str(prow.get("status", "") or "")
+            is_revoked = "廢止" in pstatus
+            # 廢止許可屬情節重大(95分)，一般公告裁罰(65分)
+            p_score = 95.0 if is_revoked else 65.0
+            p_cnt = 3 if is_revoked else 1
+            # 行為檔白盒權重：裁罰 50% + 評鑑 30%(中性30) + 輿情 20%(中性20)
+            b_total = round(0.50 * p_score + 0.30 * 30.0 + 0.20 * 20.0, 1)
+            b_level = "高" if b_total >= 60 else ("中" if b_total >= 35 else "低")
+            rows.append({
+                "park_id": f"P{i:04d}",
+                "park_name": name,
+                "park_type": ptype or prow.get("pub_type", "私立"),
+                "district": district or prow.get("area", ""),
+                "address": addr or prow.get("address", ""),
+                "tel": tel or prow.get("tel", ""),
+                "lat": lat, "lng": lng,
+                "data_status": "scored",
+                "risk_total": b_total,
+                "risk_level": b_level,
+                "scoring_profile": "behavioral",
+                "score_penalty": p_score,
+                "penalty_count": p_cnt,
             })
         else:
             lat, lng = _roster_coord(name, district)
@@ -176,6 +218,9 @@ def build() -> pd.DataFrame:
                 "park_name": name, "park_type": ptype, "district": district,
                 "address": addr, "tel": tel, "lat": lat, "lng": lng,
                 "data_status": "roster_only", "risk_total": pd.NA, "risk_level": pd.NA,
+                "scoring_profile": "behavioral",
+                "score_penalty": 0.0,
+                "penalty_count": 0,
             })
 
     # (2) 反向補位：名冊未涵蓋到的已評分機構（少數命名對不上者），仍保底納入，
@@ -197,14 +242,14 @@ def build() -> pd.DataFrame:
             "district": district, "address": "", "tel": "",
             "lat": lat, "lng": lng, "data_status": "scored",
             "risk_total": srow.get("risk_total"), "risk_level": srow.get("risk_level"),
+            "scoring_profile": srow.get("scoring_profile", "forensic"),
+            "score_penalty": srow.get("score_penalty"),
+            "penalty_count": srow.get("penalty_count", 0),
         })
 
     n_matched = sum(1 for r in rows if r["data_status"] == "scored")
 
-    out = pd.DataFrame(rows, columns=[
-        "park_id", "park_name", "park_type", "district", "address", "tel",
-        "lat", "lng", "data_status", "risk_total", "risk_level",
-    ])
+    out = pd.DataFrame(rows)
     os.makedirs(os.path.dirname(OUT_CSV), exist_ok=True)
     out.to_csv(OUT_CSV, index=False, encoding="utf-8-sig")
     print(f"[OK] 已寫入 {OUT_CSV}")

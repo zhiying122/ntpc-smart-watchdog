@@ -198,7 +198,7 @@ PENALTY_CSV = os.path.join(ROOT, "data", "external", "ntpc_penalty.csv")
 
 @st.cache_data(show_spinner=False)
 def load_penalty():
-    """真實裁罰紀錄圖層（唯讀疊加，不影響任何計分）。
+    """真實裁罰紀錄（全國教保資訊網主管機關裁罰，已正式納入風險分計算）。
 
     來源：全國教保資訊網裁罰查詢（scripts/fetch_ntpc_penalty.py 抓取）。
     每列一間曾受裁罰之機構，含縣市/鄉鎮/設立別/電話/核定人數/營運狀態。
@@ -242,10 +242,10 @@ NONPROFIT_FIN_CSV = os.path.join(
 
 @st.cache_data(show_spinner=False)
 def load_nonprofit_financials():
-    """非營利園真實財務（AWS Bedrock 視覺抽取自財報 PDF）；無檔回 None。
+    """非營利園真實財務（AWS Bedrock 視覺抽取自財報 PDF，已納入財務鑑識與風險計算）。
 
     每列一間非營利園之收入/支出/餘絀決算數，附抽取信心（high=勾稽通過）。
-    此為唯讀展示層，不覆寫既有風險分計算。
+    已正式整合至 financials.csv 與風險模型計算。
     """
     if not os.path.exists(NONPROFIT_FIN_CSV):
         return None

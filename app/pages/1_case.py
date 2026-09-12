@@ -63,9 +63,9 @@ multisrc = inspector.multi_source_view(row)
 # ---------- 案件標頭（R5.1）----------
 common.case_header(row)
 
-# ---------- 真實裁罰紀錄疊加（唯讀，不影響風險分計算）----------
+# ---------- 真實裁罰紀錄（全國教保資訊網主管機關裁罰，已納入計分）----------
 # 來源：全國教保資訊網裁罰查詢。若本機構查有裁罰／處分紀錄，明確標示於標頭
-# 下方，供稽查員參考。此為獨立圖層，不覆寫既有 score_penalty / risk_total。
+# 下方，供稽查員參考，且已正式反映於 score_penalty 與綜合風險評分。
 _pen = common.penalty_for(park)
 if _pen is not None:
     _pstatus = str(_pen.get("status", "") or "").strip()
@@ -73,16 +73,16 @@ if _pen is not None:
     st.markdown(
         f"<div class='sw-callout' style='border-left-color:{common.RISK['high'][0]};"
         f"margin-top:8px;'>"
-        f"<b style='color:{common.RISK['high'][0]};'>⚠ 查有裁罰／處分紀錄</b>"
+        f"<b style='color:{common.RISK['high'][0]};'>⚠ 查有主管機關裁罰／處分紀錄</b>"
         f"（資料來源：全國教保資訊網{_status_txt}）。"
-        f"此為官方公告之真實裁罰事實，作為稽查佐證；本頁風險分仍依既有鑑識會計"
-        f"方法計算，未因此疊加分數。</div>",
+        f"官方公告之真實裁罰已正式計入風險模型（裁罰分項 score_penalty），"
+        f"並列為優先稽查重點佐證。</div>",
         unsafe_allow_html=True,
     )
 
-# ---------- 非營利園真實財報決算（AWS Bedrock 視覺抽取，唯讀展示）----------
+# ---------- 非營利園真實財報決算（AWS Bedrock 視覺抽取，已納入計算）----------
 # 針對非營利園，附上自財報 PDF 以 Bedrock 抽取之真實 113 學年決算數（收入/
-# 支出/餘絀），並自我勾稽（收入−支出≈餘絀）。此為資料佐證層，不改風險分。
+# 支出/餘絀），並自我勾稽（收入−支出≈餘絀）。決算真值已納入 financials.csv 參與財務鑑識與風險計算。
 _npfin = common.nonprofit_financials_for(row.get("park_id"))
 if _npfin is not None and _npfin.get("income_actual") is not None:
     _inc = _npfin.get("income_actual")

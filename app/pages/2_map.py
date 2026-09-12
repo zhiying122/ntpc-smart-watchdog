@@ -109,7 +109,7 @@ fmap = folium.Map(location=center, zoom_start=zoom_start, tiles="OpenStreetMap",
 # 先畫灰點（底層），已評分的紅黃綠點稍後畫在上層，確保重點機構不被遮蓋。
 if show_roster and roster_only is not None and len(roster_only) > 0:
     for _, r in roster_only.iterrows():
-        # 真實裁罰紀錄疊加（唯讀，不影響計分）：有裁罰者以橘點強調。
+        # 真實裁罰紀錄比對：查有裁罰者以橘點強調
         pen = common.penalty_for(r["park_name"])
         has_pen = pen is not None
         pen_html = ""

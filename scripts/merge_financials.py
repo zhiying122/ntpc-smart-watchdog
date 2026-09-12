@@ -42,6 +42,23 @@ def build_nonprofit_rows():
         ("N34", 113): {"income": 15622560, "expense": 15476810, "surplus": 145750},
     }
 
+    # ---- 優先載入 AWS Bedrock 視覺抽取真實財報（若存在）----
+    bedrock_path = PROC / "nonprofit_financials_bedrock.csv"
+    bedrock_data = {}
+    if bedrock_path.exists():
+        bdf = pd.read_csv(bedrock_path)
+        for _, br in bdf.iterrows():
+            pid = str(br.get("park_id", "")).strip()
+            byr = int(br.get("year", 113))
+            tui = br.get("tuition_actual")
+            tui_val = float(tui) if pd.notna(tui) else None
+            bedrock_data[(pid, byr)] = {
+                "income": int(br["income_actual"]),
+                "expense": int(br["expense_actual"]),
+                "surplus": int(br["surplus"]),
+                "tuition": tui_val,
+            }
+
     # code 對齊：nonprofit_financials 的 code 是 'N01安溪' → 取 'N01'
     npf["code_norm"] = npf["code"].str.extract(r"^(N\d+)")
     npf = npf[npf["income_actual"].notna() & npf["expense_actual"].notna()].copy()
@@ -55,8 +72,15 @@ def build_nonprofit_rows():
         prev_income = prev_expense = None
         for _, r in g.iterrows():
             yr = int(r["acad_year"])
+            bdata = bedrock_data.get((code_norm, yr))
             fix = OCR_FIX.get((code_norm, yr))
-            if fix:
+            tuition = None
+            if bdata:
+                income = bdata["income"]
+                expense = bdata["expense"]
+                surplus = bdata["surplus"]
+                tuition = bdata["tuition"]
+            elif fix:
                 income = fix["income"]
                 expense = fix["expense"]
                 surplus = fix["surplus"]
@@ -77,7 +101,7 @@ def build_nonprofit_rows():
                 "income_last_year": prev_income,
                 "expense_actual": expense,
                 "expense_last_year": prev_expense,
-                "tuition_actual": None,   # 非營利收支表未單列學雜費，誠實留空
+                "tuition_actual": tuition,
                 "surplus": surplus,
                 # 基金餘額：非營利園 OCR 彙總未抽期初/期末基金餘額，誠實留空
                 "fund_balance_begin": None,
