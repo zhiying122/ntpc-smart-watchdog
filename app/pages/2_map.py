@@ -20,7 +20,8 @@ from lib import permissions  # noqa: E402
 common.setup_page(
     page_title="Fiscalint｜風險地圖",
     header_title="風險地圖",
-    subtitle="機構風險的空間分布。底圖 OpenStreetMap（免費、免金鑰），依風險等級著色。",
+    subtitle="機構風險的空間分布。底圖 OpenStreetMap（免費、免金鑰），依風險等級著色。"
+             "目前為行政區概略定位（同區機構位置相近），用於掌握風險分佈概況。",
     module="風險地圖",
     allowed_roles=[permissions.ROLE_GOV],
 )
@@ -76,6 +77,11 @@ if len(geo) == 0:
     st.stop()
 
 common.section("風險空間分布", "map")
+st.caption(
+    "座標說明（誠實揭露）：目前標記採「行政區概略中心座標」，同一行政區內機構"
+    "位置相近，用於一眼看出「哪些區/機構需優先關注」的概況分佈；逐址精確地理"
+    "編碼能力已實作（Nominatim 免金鑰，src/geocode.py），線上重跑即可升級。"
+)
 
 # ---------- 建立地圖 ----------
 center = [geo["lat"].mean(), geo["lng"].mean()]

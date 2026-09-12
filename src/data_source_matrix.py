@@ -181,20 +181,30 @@ DATA_SOURCE_MATRIX: tuple[DataSourceEntry, ...] = (
         notes="檔案：data/external/nonprofit.csv。",
     ),
     DataSourceEntry(
-        source="Nominatim（OpenStreetMap）地理編碼衍生資料",
-        dataset="機構座標（lat/lng，由地址 geocoding 產出）",
+        source="行政區概略座標（衍生）／Nominatim 精確編碼（架構備用）",
+        dataset="機構座標（lat/lng，供風險地圖標記）",
         authority="OpenStreetMap 貢獻者（衍生資料，非官方主管機關）",
         update_frequency="隨地址資料重跑",
         data_format="CSV",
         key_fields=("park_name", "address", "lat", "lng"),
-        confidence="中：免金鑰可取得；部分地址無法解析而座標缺漏",
-        purpose="風險地圖標記（Leaflet + OpenStreetMap）",
-        risk="少數地址無法解析導致座標為空；為衍生資料非官方座標",
+        confidence=(
+            "概略：目前 shipped 座標為『行政區中心概略座標』（離線重建、免外連），"
+            "非逐址精確地理編碼。Nominatim 逐址編碼能力已實作於 src/geocode.py，"
+            "線上重跑即可升級為精確座標。"
+        ),
+        purpose="風險地圖標記（Leaflet + OpenStreetMap）——概略定位、精確度待線上編碼",
+        risk=(
+            "目前座標為行政區概略中心（同區機構位置相近），非門牌精確；"
+            "地圖用於『看出哪些行政區/機構需優先關注』的概略分佈，非導航級定位。"
+        ),
         availability=Availability.CONFIRMED,
-        has_api=Availability.CONFIRMED,
+        has_api=Availability.CONFIRMED,       # Nominatim 免金鑰 API 可用（架構已實作）
         downloadable=Availability.CONFIRMED,
         traceable=Availability.CONFIRMED,
-        notes="檔案：data/processed/geocoded.csv；使用免費 Nominatim 服務。",
+        notes=(
+            "檔案：data/processed/geocoded.csv（source 欄標『行政區概略』）。"
+            "誠實揭露：現為概略座標；精確逐址編碼需線上執行 src/geocode.py（Nominatim）。"
+        ),
     ),
     DataSourceEntry(
         source="全國教保資訊網（官方裁罰資料）",
