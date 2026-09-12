@@ -1187,21 +1187,54 @@ with right:
 # ===========================================================================
 # 機構詳情頁（含公開資訊 + 輿情時間軸 + 分級依據 + 申訴窗口）
 # ===========================================================================
-def _record_summary(row: dict) -> tuple[str, str, str]:
+def _record_summary(row: dict, details: list[dict] | None = None) -> tuple[str, str, str]:
     """產生每間機構的「綜合公開紀錄摘要」：(結論文字, 識別色, 文字色)。
 
-    以裁罰為主要依據（公開事實），三種狀態：
-      - 有裁罰且有明細 → 中性提示筆數（暖琥珀，非警報紅）。
+    以裁罰與處分型態為主要依據（公開事實），狀態分級：
+      - 有重大行政處分（廢止設立許可、停止招生、停辦、減少招收人數/降收）→ 醒目標示處分型態。
+      - 一般公開裁罰（罰鍰）→ 中性提示筆數（暖琥珀，非警報紅）。
       - 經標記有裁罰但明細比對中 → 誠實中間狀態（暖琥珀），不誤判為乾淨。
       - 無裁罰旗標 → 正面明確「並無不良事項」（安靜綠）。
     此摘要只陳述公開事實，不作機構優劣或違法評價。
     """
     _flag = str(row.get("penalty_flag", "")).strip()
-    _pc = row.get("penalty_count")
-    try:
-        n = int(float(_pc)) if _pc is not None and not pd.isna(_pc) else None
-    except (TypeError, ValueError):
-        n = None
+    _status = str(row.get("official_penalty_status", "")).strip()
+
+    # 檢查是否含有重大處分（廢止許可、停止招生、減少招收人數/降收、停辦）
+    severe_types = []
+    if _status and "廢止" in _status:
+        severe_types.append("廢止設立許可")
+    if details:
+        for d in details:
+            p = str(d.get("punishment", ""))
+            if "廢止" in p and "廢止設立許可" not in severe_types:
+                severe_types.append("廢止設立許可")
+            elif "停止招生" in p and "停止招生（停招）" not in severe_types:
+                severe_types.append("停止招生（停招）")
+            elif "停辦" in p and "停辦" not in severe_types:
+                severe_types.append("停辦")
+            elif ("減少招收" in p or "減招" in p or "降收" in p) and "減少招收人數（降收）" not in severe_types:
+                severe_types.append("減少招收人數（降收）")
+
+    n = len(details) if details else None
+    if n is None or n <= 0:
+        _pc = row.get("penalty_count")
+        try:
+            n = int(float(_pc)) if _pc is not None and not pd.isna(_pc) else None
+        except (TypeError, ValueError):
+            n = None
+
+    if severe_types:
+        types_str = "、".join(severe_types)
+        cnt_txt = f"共 {n} 筆處分紀錄，" if (n and n > 0) else ""
+        if "廢止設立許可" in severe_types:
+            return (f"本園查有主管機關處分紀錄（{cnt_txt}含重大處分：廢止設立許可），"
+                    "請家長特別注意該園之立案與營運狀態；詳見下方裁罰欄位。",
+                    "#C0722A", "#8A4D10")
+        return (f"本園近年查有主管機關處分紀錄（{cnt_txt}含重大處分：{types_str}），"
+                "詳見下方裁罰欄位；建議家長詳細了解處分內容與改善情形。",
+                "#C0722A", "#8A4D10")
+
     # 回傳 (結論文字, 識別色(border/標記), 文字色(達 AA))。
     # 識別色維持語意 hex；文字色用加深版，確保標題文字在白底可讀。
     # 中間狀態：官方標記有裁罰，但無可對應之逐筆明細。
@@ -1244,9 +1277,16 @@ def render_disclosure(row: dict):
     else:
         row["ownership"] = _ptype
 
-    # 綜合公開紀錄摘要（每間都有明確結論，不留空白）。
+    # 裁罰紀錄：完整呈現逐筆客觀處分事實（日期/處分內容/法規），嚴格與綜合摘要數值對齊
+    _penalty_flag = str(row.get("penalty_flag", "")).strip()
+    _park_name_str = str(row.get("park_name", "")).strip()
+    _details = pdset.penalty_details_for(
+        str(row.get("owner", "")), _penalty_flag, PENALTY_INDEX,
+        park_name=_park_name_str)
+
+    # 綜合公開紀錄摘要（每間都有明確結論，不留空白；支援檢驗重大處分如降收/停招/廢止）。
     # border 用識別色（語意）；標題文字用達 AA 的文字色。
-    _sum_txt, _sum_color, _sum_text_color = _record_summary(row)
+    _sum_txt, _sum_color, _sum_text_color = _record_summary(row, details=_details)
     st.markdown(
         f"<div style='border-left:4px solid {_sum_color};background:#fff;"
         f"border:1px solid #ECE7DE;border-radius:8px;padding:12px 16px;"
@@ -1281,12 +1321,6 @@ def render_disclosure(row: dict):
         "全國教保資訊網．評鑑結果查詢",
         _authority, "https://ap.ece.moe.edu.tw/webecems/evaSearch.aspx", _data_date)
 
-    # 裁罰紀錄：完整呈現逐筆客觀處分事實（日期/處分內容/法規），嚴格與綜合摘要數值對齊
-    _penalty_flag = str(row.get("penalty_flag", "")).strip()
-    _park_name_str = str(row.get("park_name", "")).strip()
-    _details = pdset.penalty_details_for(
-        str(row.get("owner", "")), _penalty_flag, PENALTY_INDEX,
-        park_name=_park_name_str)
     _pen_source = SourceRef(
         "全國教保資訊網公開裁罰紀錄（教育部官方裁罰名單）", _authority,
         "https://ap.ece.moe.edu.tw/webecems/punishSearch.aspx", _data_date)

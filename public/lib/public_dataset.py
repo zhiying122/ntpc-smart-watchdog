@@ -75,9 +75,10 @@ def _penalty_records_by_owner(penalties: list) -> dict[str, list]:
     值為 [{date, punishment, law, subject_type}, ...]，不含 dataclass 物件，
     確保能被 st.cache_data 序列化保存。
 
-    去重（資料正確性）：同一受處分對象名下，來源資料可能出現重複的裁罰紀錄
-    （相同 record_id，或 id 缺漏時以 date+law+punishment 判定），一律只保留一筆，
-    避免家長看到被灌水的裁罰筆數。
+    去重（資料正確性）：來源資料中 id 為受處分對象/個人 UUID（非單筆紀錄流水號）；
+    同一負責人名下常有多筆不同日期或不同性質之處分（例如罰鍰後又有減少招收人數
+    或停止招生處分）。去重鍵以 日期 + 法條 + 處分內容 判定，既避免完全相同的重複
+    資料灌水，又能完整保留歷次降收、停招、停辦與罰鍰處分。
     """
     idx: dict[str, list] = {}
     seen: dict[str, set] = {}
@@ -85,9 +86,8 @@ def _penalty_records_by_owner(penalties: list) -> dict[str, list]:
         name = (p.subject or "").strip()
         if not name:
             continue
-        # 去重鍵：優先 record_id；缺漏時以 date+law+punishment 組合。
-        rid = (p.record_id or "").strip()
-        key = rid or f"{p.date}|{p.law}|{p.punishment}"
+        # 去重鍵：以 日期 + 法條 + 處分內容 判定單筆處分是否重複
+        key = f"{p.date}|{p.law}|{p.punishment}"
         seen_keys = seen.setdefault(name, set())
         if key in seen_keys:
             continue

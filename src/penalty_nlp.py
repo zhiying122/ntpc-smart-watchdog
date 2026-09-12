@@ -108,6 +108,16 @@ def penalty_severity_score(penalty_count, penalty_reason):
 
     info = classify_penalty_text(penalty_reason if isinstance(penalty_reason, str) else "")
     base = info["severity"] if info["severity"] > 0 else UNCLASSIFIED_SEVERITY
+
+    # 重大行政處分加權（幼照法重處分：廢止設立許可、停止招生、停辦、減少招收人數/降收）
+    txt = str(penalty_reason or "")
+    if any(k in txt for k in ["廢止", "撤銷"]):
+        base = max(base, 95)
+    elif any(k in txt for k in ["停止招生", "停辦"]):
+        base = max(base, 90)
+    elif any(k in txt for k in ["減少招收", "減招", "降收"]):
+        base = max(base, 85)
+
     # 次數加權：第 1 次用 base，之後每次 +10
     score = base + (c - 1) * 10
     return round(min(score, 100), 1)

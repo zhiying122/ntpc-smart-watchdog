@@ -142,10 +142,14 @@ def match_penalties(penalties: Iterable, institutions: Iterable) -> list[Penalty
     _seen_pen: set = set()
     for pen in penalties:
         _rid = _attr(pen, "record_id").strip()
-        _key = _rid or "|".join([
+        # 來源資料中 id 為受處分對象 UUID，同一對象常有多筆不同日期/處分（如罰鍰、降收、停招）。
+        # 以 對象+日期+法條+處分 判定重複；若皆空則以 record_id 判定。
+        _content = "|".join([
             _attr(pen, "subject"), _attr(pen, "date"),
             _attr(pen, "law"), _attr(pen, "punishment"),
         ])
+        _has_details = any([_attr(pen, "date"), _attr(pen, "law"), _attr(pen, "punishment")])
+        _key = _content if _has_details else (_rid or _content)
         if _key in _seen_pen:
             continue
         _seen_pen.add(_key)
