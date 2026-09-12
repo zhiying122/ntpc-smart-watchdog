@@ -1223,6 +1223,17 @@ def render_disclosure(row: dict):
     _dataset = "全國教保資訊網 / 新北市幼兒教育資源網（公開資料）"
     _url = "https://www.ece.moe.edu.tw/"
 
+    # 「最後更新」用資料實際抓取日（非今天），避免時效誤導。解析 fetched_at
+    # （ISO 字串）為 date；無法解析時退回 TODAY（至少不會壞，但通常都有值）。
+    _fetched = _pubdata.get("fetched_at")
+    _data_date = TODAY
+    if _fetched:
+        try:
+            from datetime import datetime as _dt
+            _data_date = _dt.fromisoformat(str(_fetched)).date()
+        except (ValueError, TypeError):
+            _data_date = TODAY
+
     # 公私立別：若為準公共合作園，附註「準公共」（家長關心的平價名額指標）。
     _ptype = str(row.get("park_type", "")).strip()
     if row.get("is_quasi_public"):
@@ -1242,8 +1253,8 @@ def render_disclosure(row: dict):
         f"<span style='color:#42513F;font-size:.9rem'>{html.escape(_sum_txt)}</span></div>",
         unsafe_allow_html=True)
     field_sources: dict[str, SourceRef] = {
-        "basic_info": SourceRef(_dataset, _authority, _url, TODAY),
-        "ownership": SourceRef(_dataset, _authority, _url, TODAY),
+        "basic_info": SourceRef(_dataset, _authority, _url, _data_date),
+        "ownership": SourceRef(_dataset, _authority, _url, _data_date),
     }
 
     # 收費資訊：真實資料源提供每月收費（monthly，元/月）。
@@ -1256,19 +1267,26 @@ def render_disclosure(row: dict):
                     f"每月收費約 {_mv:,.0f} 元（依全國教保資訊網公開登載；"
                     f"實際收退費項目以主管機關公告與契約為準）")
                 field_sources["tuition_info"] = SourceRef(
-                    "全國教保資訊網．幼兒園收費公開資訊", _authority, _url, TODAY)
+                    "全國教保資訊網．幼兒園收費公開資訊", _authority, _url, _data_date)
         except (TypeError, ValueError):
             pass
 
-    # 評鑑結果：依「分年分區輪替」制度判定狀態（已接受評鑑 / 尚未接受評鑑）。
-    # 新北市基礎評鑑三年一週期、每年只訪視特定行政區；無等第多為「該區尚未排入
-    # 本輪」而非資料缺漏，故以官方用語呈現，不寫 nan / 查無資料。
-    _status, _eval_text = evc.evaluation_status(
-        str(row.get("district", "")), row.get("eval_grade"))
+    # 評鑑結果（誠實揭露，避免幻覺）：本平台目前的公開資料源（全國教保資訊網
+    # 機構基本資料）不含評鑑等第，故「沒有等第」時不編造制度性說明，而是明確
+    # 標示「尚未整合評鑑資料」，並導向官方查詢。僅在未來真的取得等第（eval_grade
+    # 有值）時，才以 evaluation_cycle 呈現「已接受評鑑：X 等」。
+    _eval_grade = row.get("eval_grade")
+    _has_grade = _eval_grade is not None and str(_eval_grade).strip() not in ("", "nan", "None")
+    if _has_grade:
+        _status, _eval_text = evc.evaluation_status(
+            str(row.get("district", "")), _eval_grade)
+    else:
+        _eval_text = ("本平台尚未整合評鑑資料。基礎評鑑結果請至「全國教保資訊網」"
+                      "評鑑結果查詢，或新北市幼兒教育資源網查詢。")
     row["public_eval"] = _eval_text
     field_sources["public_eval"] = SourceRef(
         "全國教保資訊網．評鑑結果查詢",
-        _authority, "https://ap.ece.moe.edu.tw/webecems/evaSearch.aspx", TODAY)
+        _authority, "https://ap.ece.moe.edu.tw/webecems/evaSearch.aspx", _data_date)
 
     # 裁罰紀錄：三種狀態，避免把「經標記有裁罰但明細待比對」誤顯示為乾淨。
     #   1) 有旗標且比對到明細 → 條列近幾筆真實明細（日期/罰鍰/法條）。
@@ -1279,7 +1297,7 @@ def render_disclosure(row: dict):
         str(row.get("owner", "")), _penalty_flag, PENALTY_INDEX)
     _pen_source = SourceRef(
         "全國教保資訊網公開裁罰紀錄（經 g0v 開源專案整理備份）", _authority,
-        "https://ap.ece.moe.edu.tw/webecems/punishSearch.aspx", TODAY)
+        "https://ap.ece.moe.edu.tw/webecems/punishSearch.aspx", _data_date)
     if _details:
         # 責任 AI（方案 A）：家長端不逐筆列出日期／罰鍰等處分細節。
         # 原因：裁罰以「負責人姓名」比對而來，官方查詢介面的查詢維度不同，
@@ -1399,13 +1417,23 @@ def render_attention(park_id: str, park_name: str, district: str):
         unsafe_allow_html=True)
 
     # ---- 輿情關注指數（診斷式白盒總評分，可攤開）----
+    # 若本園有社群示範資料（DEMO），指數係「即時新聞＋示範資料」混算，於數字旁
+    # 明確標示，避免家長誤讀為全由真實輿情算出（誠實揭露）。
+    _demo_badge = ("<span style='margin-left:10px;font-size:.72rem;font-weight:600;"
+                   "color:#9A5E14;background:#FAF1E4;border:1px solid #E8D3AE;"
+                   "border-radius:6px;padding:2px 8px'>含示範資料 DEMO</span>"
+                   if meta.get("has_demo") else "")
     st.markdown(
         f"<div style='margin-top:12px'><span style='font-size:1.9rem;font-weight:700;"
         f"color:{color}'>{index.total:.0f}</span>"
-        f"<span style='color:#8A8073;font-size:.9rem'> / 100　輿情關注指數</span></div>",
+        f"<span style='color:#8A8073;font-size:.9rem'> / 100　輿情關注指數</span>"
+        f"{_demo_badge}</div>",
         unsafe_allow_html=True)
     st.progress(min(1.0, index.total / 100.0))
     st.caption(index.disclaimer)
+    if meta.get("has_demo"):
+        st.caption(f"註：本園輿情含 {meta.get('demo', 0)} 則社群「示範資料（DEMO）」，"
+                   "已一併計入上方指數與趨勢；真實新聞部分見下方時間軸來源標示。")
 
     if index.subscores:
         with st.expander("這個指數怎麼算出來的（白盒公式）"):

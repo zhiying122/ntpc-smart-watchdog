@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote
@@ -409,27 +410,39 @@ def fetch_all_news(park_name: str, district: str = "", *, timeout: float = 8.0,
     if not name_core(park_name):
         return []
 
-    collected: list[dict] = []
+    # 併發抓取（效能）：原本序列發 ~14 個 RSS 請求，每個逾時 timeout 秒，最壞
+    # 累加達上百秒。改用執行緒池同時發送，總耗時 ≈ 最慢的單一請求；任一來源
+    # 失敗只回空、不影響其他來源（各抓取函式已內建例外保護）。
+    tasks = []  # list[callable() -> list[dict]]
     # 多組 Google News 查詢（不同關鍵字面向）。
     for topic in _QUERY_TOPICS:
         q = build_query(park_name, district, extra=topic)
         if not q:
             continue
-        collected.extend(_fetch_rss(
+        tasks.append(lambda q=q: _fetch_rss(
             _GNEWS_RSS, q, park_name, district, platform="google_news",
             timeout=timeout, limit=per_source_limit, reference=ref))
 
     # Bing News（基本查詢，互補來源）。
     q_bing = build_query(park_name, district)
     if q_bing:
-        collected.extend(_fetch_rss(
+        tasks.append(lambda: _fetch_rss(
             _BING_RSS, q_bing, park_name, district, platform="bing_news",
             timeout=timeout, limit=per_source_limit, reference=ref))
 
     # 台灣主要媒體 RSS 直連（第一手來源，全站 feed 以園名比對過濾）。
     for media_name, media_url in _MEDIA_RSS:
-        collected.extend(_fetch_media_rss(
-            media_name, media_url, park_name, district,
-            timeout=timeout, reference=ref))
+        tasks.append(lambda mn=media_name, mu=media_url: _fetch_media_rss(
+            mn, mu, park_name, district, timeout=timeout, reference=ref))
+
+    collected: list[dict] = []
+    if tasks:
+        with ThreadPoolExecutor(max_workers=min(8, len(tasks))) as ex:
+            futures = [ex.submit(t) for t in tasks]
+            for fut in as_completed(futures):
+                try:
+                    collected.extend(fut.result())
+                except Exception:  # noqa: BLE001 - 單一來源失敗不影響整體
+                    continue
 
     return _dedupe(collected)[:limit]
