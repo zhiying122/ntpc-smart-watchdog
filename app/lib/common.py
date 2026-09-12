@@ -588,15 +588,17 @@ def _sidebar(active_key):
         unsafe_allow_html=True,
     )
 
-    # --- 2) 角色感知導覽（第一層授權）---
-    # 未登入 → 不顯示任何導覽項目；已登入 → 只顯示該角色允許的頁面。
-    current_role = auth.get_current_role()
-    if current_role is not None:
-        allowed_keys = set(permissions.get_role_navigation(current_role))
-        with st.sidebar.container():
-            for key, disp, ic, page in NAV_ALL:
-                if key in allowed_keys:
-                    st.page_link(page, label=disp, icon=_NAV_EMOJI.get(key, "▪"))
+    # --- 2) 導覽（公務後台無登入、無角色）：固定顯示所有公務頁面 ---
+    # 公務後台為政府內部系統，所有頁面對公務人員一律開放；家長端已切分為獨立
+    # 公眾查詢網（public/公開查詢.py），不在此導覽中。
+    with st.sidebar.container():
+        for key, disp, ic, page in NAV_ALL:
+            # page_link 在離線測試環境（AppTest 無 page registry）會丟
+            # KeyError('url_pathname')；容錯以確保導覽失敗不中斷整頁渲染。
+            try:
+                st.page_link(page, label=disp, icon=_NAV_EMOJI.get(key, "▪"))
+            except Exception:  # noqa: BLE001
+                pass
 
     # --- 3) 目前登入角色 + 登出：已移至右上角 header（見 _render_topbar_account）---
 
@@ -661,45 +663,15 @@ def setup_page(page_title, header_title, subtitle=None, layout="wide",
                        initial_sidebar_state="auto")
     st.markdown(_css(), unsafe_allow_html=True)
 
-    # RBAC 第二層授權：頁面級守衛（在渲染側欄與內容之前）。
-    if allowed_roles is not None:
-        auth.require_role(allowed_roles)
+    # 公務後台（8601）為政府內部系統，不設登入牆與角色守衛。
+    # allowed_roles 參數保留於簽名以向後相容既有頁面呼叫，但不再觸發守衛。
+    _ = allowed_roles
 
     _sidebar(_current_page_key())
 
     crumb_txt = crumb or "Fiscalint"
     module_txt = module or header_title
     sub = f"<div class='sw-psub'>{html.escape(subtitle)}</div>" if subtitle else ""
-
-    # 登出：以查詢參數 ?logout=1 觸發（純 HTML 連結點擊），在此處理並清 session。
-    if st.query_params.get("logout") == "1":
-        auth.logout()
-        try:
-            del st.query_params["logout"]
-        except Exception:
-            st.query_params.clear()
-        st.rerun()
-
-    current_role = auth.get_current_role()
-
-    # 帳號膠囊（角色 + 登出）：合併進 header 右側 sw-meta 區塊，成為 header 的一部分，
-    # 避免與 header 橫幅成為兩個獨立區塊而重疊。已登入才顯示。
-    acct_html = ""
-    if current_role is not None:
-        user = auth.get_current_user() or {}
-        _usvg = (
-            "<svg width='14' height='14' viewBox='0 0 24 24' fill='none' "
-            f"stroke='{INK_MUTED}' stroke-width='1.7' stroke-linecap='round' "
-            "stroke-linejoin='round'><circle cx='12' cy='8' r='4'/>"
-            "<path d='M4 21a8 8 0 0 1 16 0'/></svg>"
-        )
-        acct_html = (
-            f"<div class='sw-acctbar'>"
-            f"<div class='sw-acct'>{_usvg}"
-            f"<span class='sw-acct-role'>{html.escape(user.get('label', ''))}</span></div>"
-            f"<a class='sw-acct sw-logout' href='?logout=1' target='_self'>登出</a>"
-            f"</div>"
-        )
 
     st.markdown(
         f"""
@@ -710,7 +682,6 @@ def setup_page(page_title, header_title, subtitle=None, layout="wide",
             {sub}
           </div>
           <div class='sw-meta'>
-            {acct_html}
             <div>資料更新　<b>{data_updated_at()}</b></div>
           </div>
         </div>
@@ -1081,3 +1052,142 @@ def active_alert_panel(df, max_rows=8):
         f"資料管線重新評估，即構成隨資料自動更新的即時預警系統。</div>",
         unsafe_allow_html=True,
     )
+
+
+# ===========================================================================
+# 互動式圖表（Plotly）：對齊政府級動態儀表板（hover 詳情 / 堆疊+趨勢雙軸）
+# ---------------------------------------------------------------------------
+# 設計原則（對齊 steering 反 AI 生成風）：
+#   - 沿用中性石墨骨架 + 五階風險語意色，不用彩色/漸層/發光。
+#   - 互動只做「hover 顯示詳情」與「堆疊分項組成」——政府稽查員每天真的會用的
+#     互動，非炫技動畫。
+#   - 白色底、細框、tabular 數字、Inter/Noto Sans TC 字體，與既有 CSS 一致。
+# ===========================================================================
+_PLOTLY_FONT = "Inter, Noto Sans TC, Microsoft JhengHei"
+
+
+def _plotly_layout(fig, height=300, title=None):
+    """套用統一的中性專業版面（白底、細格線、無圖例外框）。"""
+    fig.update_layout(
+        height=height,
+        margin=dict(l=48, r=24, t=40 if title else 16, b=36),
+        paper_bgcolor="#FFFFFF",
+        plot_bgcolor="#FFFFFF",
+        font=dict(family=_PLOTLY_FONT, size=12, color=INK),
+        title=dict(text=title or "", font=dict(size=13, color=INK)) if title else None,
+        hoverlabel=dict(bgcolor="#FFFFFF", bordercolor=BORDER,
+                        font=dict(family=_PLOTLY_FONT, size=12, color=INK)),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
+                    font=dict(size=11, color=INK_2)),
+    )
+    fig.update_xaxes(gridcolor=SURFACE_SUNK, linecolor=BORDER, zeroline=False,
+                     tickfont=dict(size=11, color=INK_MUTED))
+    fig.update_yaxes(gridcolor=SURFACE_SUNK, linecolor=BORDER, zeroline=False,
+                     tickfont=dict(size=11, color=INK_MUTED))
+    return fig
+
+
+def risk_distribution_interactive(counts_by_level, total):
+    """互動式風險分布橫條（hover 顯示間數與占比）。取代靜態 HTML 版。"""
+    import plotly.graph_objects as go
+
+    levels = ["高", "中", "低"]
+    ns = [int(counts_by_level.get(lv, 0)) for lv in levels]
+    pcts = [(n / total * 100) if total else 0 for n in ns]
+    colors = [RISK_BAR[LEVEL_TO_RISK[lv]] for lv in levels]
+
+    fig = go.Figure(go.Bar(
+        x=ns, y=[f"{lv}風險" for lv in levels], orientation="h",
+        marker=dict(color=colors),
+        text=[f"{n} 間（{p:.0f}%）" for n, p in zip(ns, pcts)],
+        textposition="outside",
+        textfont=dict(size=12, color=INK),
+        hovertemplate="%{y}：<b>%{x} 間</b>（占 %{customdata:.0f}%）<extra></extra>",
+        customdata=pcts,
+    ))
+    fig.update_layout(showlegend=False)
+    _plotly_layout(fig, height=220)
+    fig.update_xaxes(title=None, range=[0, max(ns) * 1.25 if ns and max(ns) else 1])
+    fig.update_yaxes(autorange="reversed")
+    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+
+
+def risk_composition_by_district(df, top_n=12):
+    """各行政區風險分項堆疊長條（財務/裁罰/評鑑），hover 顯示分項拆解。
+
+    對齊 statedu「堆疊長條表達組成」：每一區一根柱，堆疊三個可解釋分項的
+    加權貢獻，稽查員 hover 即見「這一區的高風險是財務還是裁罰造成」。
+    """
+    import plotly.graph_objects as go
+
+    if "district" not in df.columns:
+        empty_state("無行政區資料", "資料未含行政區欄位，無法繪製分區組成。")
+        return
+
+    w = {"financial": 0.50, "penalty": 0.34, "eval": 0.16}
+    g = df.copy()
+    for k, col in (("financial", "score_financial"), ("penalty", "score_penalty"),
+                   ("eval", "score_eval")):
+        g[f"c_{k}"] = g[col].fillna(0) * w[k]
+    agg = (g.groupby("district")[["c_financial", "c_penalty", "c_eval", "risk_total"]]
+             .mean().sort_values("risk_total", ascending=False).head(top_n))
+
+    districts = agg.index.tolist()
+    parts = [("c_financial", "財務異常", RISK_BAR["high"]),
+             ("c_penalty", "裁罰紀錄", RISK_BAR["medium"]),
+             ("c_eval", "評鑑結果", RISK_BAR["low"])]
+
+    fig = go.Figure()
+    for col, label, color in parts:
+        fig.add_trace(go.Bar(
+            x=districts, y=agg[col], name=label, marker=dict(color=color),
+            hovertemplate=f"%{{x}}｜{label}貢獻：<b>%{{y:.1f}}</b> 分<extra></extra>",
+        ))
+    fig.update_layout(barmode="stack")
+    _plotly_layout(fig, height=320)
+    fig.update_yaxes(title="平均風險分（分項貢獻堆疊）")
+    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+
+
+def risk_trend_chart(full_df, park_name):
+    """單一機構歷年趨勢：分項堆疊長條 + 總分折線雙軸（對齊 statedu 雙軸樣式）。
+
+    hover 顯示該年的分項拆解與總分，讓稽查員看見「哪一年惡化、由哪個分項推升」。
+    full_df：多年度全量資料（每園每年一列）；park_name：目標機構。
+    """
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    if full_df is None or "year" not in full_df.columns:
+        empty_state("無多年度資料", "此機構缺跨年度資料，無法繪製歷年趨勢。")
+        return
+    sub = (full_df[full_df["park_name"] == park_name]
+           .sort_values("year")) if "park_name" in full_df.columns else None
+    if sub is None or len(sub) < 2:
+        empty_state("跨年度資料不足", "此機構可取得年度少於 2 年，暫不繪製趨勢。")
+        return
+
+    years = [f"{int(y)}" for y in sub["year"]]
+    w = {"financial": 0.50, "penalty": 0.34, "eval": 0.16}
+    parts = [("score_financial", "財務異常", RISK_BAR["high"], w["financial"]),
+             ("score_penalty", "裁罰紀錄", RISK_BAR["medium"], w["penalty"]),
+             ("score_eval", "評鑑結果", RISK_BAR["low"], w["eval"])]
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    for col, label, color, weight in parts:
+        vals = (sub[col].fillna(0) * weight) if col in sub.columns else [0] * len(sub)
+        fig.add_trace(go.Bar(
+            x=years, y=vals, name=label, marker=dict(color=color),
+            hovertemplate=f"%{{x}} 學年｜{label}貢獻 <b>%{{y:.1f}}</b><extra></extra>",
+        ), secondary_y=False)
+    if "risk_total" in sub.columns:
+        fig.add_trace(go.Scatter(
+            x=years, y=sub["risk_total"], name="總風險分", mode="lines+markers",
+            line=dict(color=INK, width=2.5), marker=dict(size=8, color=INK),
+            hovertemplate="%{x} 學年｜總風險分 <b>%{y:.1f}</b><extra></extra>",
+        ), secondary_y=True)
+    fig.update_layout(barmode="stack")
+    _plotly_layout(fig, height=340)
+    fig.update_yaxes(title="分項貢獻", secondary_y=False)
+    fig.update_yaxes(title="總風險分", secondary_y=True, range=[0, 100])
+    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})

@@ -13,9 +13,7 @@ import streamlit as st
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
-from lib import auth  # noqa: E402
 from lib import common  # noqa: E402
-from lib import permissions  # noqa: E402
 from src import ai_report  # noqa: E402
 
 common.setup_page(
@@ -23,12 +21,10 @@ common.setup_page(
     header_title="AI 決策支援",
     subtitle="風險因子與證據追溯、AI 白話研判與人工複核。分數以規則與統計計算，AI 僅輔助決策。",
     module="AI 決策支援",
-    allowed_roles=[permissions.ROLE_GOV, permissions.ROLE_INSPECTOR],
 )
 
-# 資料授權層：政府/稽查員皆為全欄位可見，仍走一致流程。
-df = permissions.authorize_dataframe(common.require_data(),
-                                     auth.get_current_role() or permissions.ROLE_GOV)
+# 公務後台全欄位可見。
+df = common.require_data()
 has_aws = bool(os.environ.get("AWS_ACCESS_KEY_ID"))
 
 # ---------- 選案件 ----------

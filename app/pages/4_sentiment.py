@@ -18,9 +18,7 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from lib import auth  # noqa: E402
 from lib import common  # noqa: E402
-from lib import permissions  # noqa: E402
 from src import official_signals as osig  # noqa: E402
 
 common.setup_page(
@@ -28,12 +26,10 @@ common.setup_page(
     header_title="官方公開信號分析",
     subtitle="以裁罰紀錄與評鑑結果（全國教保資訊網）呈現機構關注信號，依風險類別歸類。",
     module="官方公開信號",
-    allowed_roles=[permissions.ROLE_GOV, permissions.ROLE_INSPECTOR],
 )
 
-# 資料授權層：政府/稽查員皆為全欄位可見，仍走一致流程。
-df = permissions.authorize_dataframe(common.require_data(),
-                                     auth.get_current_role() or permissions.ROLE_GOV)
+# 公務後台全欄位可見。
+df = common.require_data()
 
 LABEL_TEXT = {"pos": "正向", "neg": "負向關注", "neu": "中性"}
 LABEL_COLOR = {"pos": common.LEVEL_COLOR["低"], "neg": common.LEVEL_COLOR["高"],

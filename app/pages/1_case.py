@@ -167,6 +167,16 @@ if len(tl_vals) >= 1:
 else:
     common.empty_state("無跨年度資料", "此機構未出現在多年度資料集中。")
 
+# ---------- 歷年風險組成趨勢（分項堆疊 + 總分折線雙軸，對齊政府級動態圖）----------
+common.section("歷年風險組成趨勢", "dashboard")
+st.markdown(
+    f"<div style='color:{common.MUTED};font-size:.84rem;margin:-4px 0 8px;'>"
+    f"各年度風險分依分項（財務／裁罰／評鑑）堆疊，折線為總風險分；"
+    f"游標移入可見該年拆解，看出哪一年惡化、由哪個分項推升。</div>",
+    unsafe_allow_html=True,
+)
+common.risk_trend_chart(full, park)
+
 # ---------- 五類分析 / 同儕 / 異常 / 證據 / 歸因 / Copilot ----------
 tab_cat, tab_peer, tab_anom, tab_ev, tab_attr, tab_ai = st.tabs(
     ["五類分析", "同儕比較", "異常偵測", "證據鏈", "特徵歸因", "AI 稽查助手"])

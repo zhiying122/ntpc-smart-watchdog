@@ -49,12 +49,14 @@ def test_public_site_has_no_risk_data_leak():
 # ---------------------------------------------------------------------------
 # 公務後台
 # ---------------------------------------------------------------------------
-def test_gov_backend_shows_login_when_unauthenticated():
+def test_gov_backend_renders_without_login():
+    """公務後台（8601）無登入牆：直接開啟即渲染風險總覽，不丟真實例外。"""
     at = AppTest.from_file(GOV_APP, default_timeout=30).run()
-    assert not at.exception, f"公務後台（未登入）執行期例外：{at.exception}"
-    # 未登入應顯示公務入口（含「公務帳號登入」字樣），且不外洩風險資料。
+    assert _is_only_pagelink_harness_limitation(at.exception), (
+        f"公務後台（無登入）真實執行期例外：{at.exception}")
+    # 直接顯示風險總覽內容（不再有登入牆）。
     texts = " ".join(m.value for m in at.markdown)
-    assert "公務帳號登入" in texts or "公務入口" in texts
+    assert "風險" in texts
 
 
 #: AppTest 的 bare 模式不提供多頁 URL 上下文，st.page_link 會失敗。這是測試框架
@@ -95,13 +97,13 @@ def test_gov_backend_renders_after_gov_login():
         f"公務後台（政府登入）真實執行期例外：{at.exception}")
 
 
-def test_gov_backend_renders_after_inspector_login():
-    # 稽查員登入主頁 → require_role 應顯示存取遭拒（主頁屬政府），但不應丟例外。
-    at = AppTest.from_file(GOV_APP, default_timeout=60)
-    at.session_state["auth_role"] = "inspector"
-    at.session_state["auth_username"] = "inspector_demo"
+def test_gov_backend_case_page_renders_without_login():
+    # 稽查員工作台（案件調查）在無登入公務後台下應可直接渲染，不丟真實例外。
+    at = AppTest.from_file(os.path.join(ROOT, "app", "pages", "1_case.py"),
+                           default_timeout=60)
     at.run()
-    assert not at.exception, f"公務後台（稽查員登入主頁）執行期例外：{at.exception}"
+    assert _is_only_pagelink_harness_limitation(at.exception), (
+        f"案件調查頁（無登入）真實執行期例外：{at.exception}")
 
 
 def test_dispatch_page_renders_for_gov():
@@ -137,13 +139,13 @@ def test_health_page_renders_for_gov():
         f"系統健康檢查頁真實執行期例外：{at.exception}")
 
 
-def test_gov_backend_parent_role_denied_no_exception():
-    # 家長角色即使被塞進 session，主頁 require_role 也應擋下且不丟例外。
-    at = AppTest.from_file(GOV_APP, default_timeout=60)
-    at.session_state["auth_role"] = "parent_user"
-    at.session_state["auth_username"] = "parent_demo"
+def test_gov_backend_map_page_renders_without_login():
+    # 風險地圖頁在無登入公務後台下應可直接渲染，不丟真實例外。
+    at = AppTest.from_file(os.path.join(ROOT, "app", "pages", "2_map.py"),
+                           default_timeout=60)
     at.run()
-    assert not at.exception
+    assert _is_only_pagelink_harness_limitation(at.exception), (
+        f"風險地圖頁（無登入）真實執行期例外：{at.exception}")
 
 
 # ---------------------------------------------------------------------------

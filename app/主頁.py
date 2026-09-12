@@ -11,23 +11,16 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib import common  # noqa: E402
-from lib import auth  # noqa: E402
-from lib import permissions  # noqa: E402
 
-# RBAC：主頁屬政府（風險總覽）。未登入 → 顯示登入畫面；
-# 稽查員/家長直接開此頁網址 → require_role(["gov_user"]) 擋下（第二層授權）。
-auth.require_login()
-
+# 公務後台（8601）為政府內部系統，不設登入牆。
 common.setup_page(
     page_title="Fiscalint｜風險總覽",
     header_title="風險總覽",
     subtitle="全體受監理機構的風險評估總覽，依總風險分排序協助稽查資源投放。",
     module="風險總覽",
-    allowed_roles=[permissions.ROLE_GOV],
 )
 
-# 資料授權層：政府為全欄位可見；仍走 authorize_dataframe 一致流程。
-df = permissions.authorize_dataframe(common.require_data(), permissions.ROLE_GOV)
+df = common.require_data()
 
 # ---------- 第一層：Risk Overview（企業級 KPI stat 帶）----------
 n_high = int((df["risk_level"] == "高").sum())
@@ -48,10 +41,20 @@ col_dist, col_prio = st.columns([1, 1.35], gap="large")
 with col_dist:
     common.section("風險分布", "shield")
     counts = df["risk_level"].value_counts().to_dict()
-    common.risk_distribution(counts, len(df))
+    common.risk_distribution_interactive(counts, len(df))
 with col_prio:
     common.section("優先稽查案件", "alert")
     common.priority_cases(df, n=5)
+
+# ---------- 各行政區風險組成（互動堆疊：財務/裁罰/評鑑分項）----------
+common.section("各行政區風險組成", "map")
+st.markdown(
+    f"<div style='color:{common.MUTED};font-size:.84rem;margin:-4px 0 8px;'>"
+    f"每區平均風險分依分項貢獻堆疊，游標移入可見各分項拆解——一眼看出該區"
+    f"高風險由財務、裁罰或評鑑何者主導，協助資源精準投放。</div>",
+    unsafe_allow_html=True,
+)
+common.risk_composition_by_district(df, top_n=12)
 
 # ---------- 第三層：完整機構風險排名表 ----------
 common.section("機構風險排名（完整）", "dashboard")
