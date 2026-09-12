@@ -99,6 +99,15 @@ data/processed/*.csv
 data/processed/*.parquet
 data/processed/*.json
 
+# 例外：線上部署所需的「契約檔／衍生資料」（皆為公開財務決算之彙整衍生，
+# 無個資、無敏感資訊）。EC2 clone 後需要這些檔案才能啟動，故明確納入版控。
+# 這些是公開資料的衍生成果，非原始個資檔（原始 PDF/OCR 仍由上方規則排除）。
+!data/processed/kindergartens_latest.csv
+!data/processed/kindergartens.csv
+!data/processed/kindergartens_roster.csv
+!data/processed/nonprofit_financials_bedrock.csv
+!data/processed/geocoded.csv
+
 # 動態資料連接器的本地快取（由官方開放資料即時抓取，可重新產生，不進版控）
 data/cache/
 *.sqlite

@@ -1,0 +1,35 @@
+[Unit]
+# 公務後台（Fiscalint 稽查預警系統）— 埠 8601
+# 對應本機啟動：python -m streamlit run app/主頁.py --server.port 8601
+Description=Smart Watchdog Gov Console (Streamlit :8601)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# ⚠️ 部署時請確認使用者與路徑：預設以 ec2-user 於 /home/ec2-user/ntpc-smart-watchdog 執行。
+# 若你的 AMI 使用者為 ubuntu，請把 User 與 WorkingDirectory 一併改為 ubuntu 對應路徑。
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/home/ec2-user/ntpc-smart-watchdog
+
+# 從 .env 載入環境變數（AWS 憑證建議改用 IAM Role，見 docs/deploy-ec2.md）。
+# EnvironmentFile 為選用：檔案不存在時以「-」前綴避免啟動失敗。
+EnvironmentFile=-/home/ec2-user/ntpc-smart-watchdog/.env
+
+# 以 venv 內的 python 啟動；--server.address 0.0.0.0 讓外部（經 Security Group）可連。
+# --server.headless true 關閉互動提示；停用使用統計上報。
+ExecStart=/home/ec2-user/ntpc-smart-watchdog/.venv/bin/python -m streamlit run app/主頁.py \
+    --server.port 8601 \
+    --server.address 0.0.0.0 \
+    --server.headless true \
+    --browser.gatherUsageStats false
+
+Restart=always
+RestartSec=5
+# Streamlit 檔案監看在生產環境不需要，關閉可省資源（改由 systemd restart 生效）。
+Environment=STREAMLIT_SERVER_FILE_WATCHER_TYPE=none
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

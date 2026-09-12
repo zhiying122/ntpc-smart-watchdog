@@ -1,0 +1,29 @@
+[Unit]
+# 公眾查詢網（安心找幼兒園）— 埠 8602
+# 對應本機啟動：python -m streamlit run public/公開查詢.py --server.port 8602
+Description=Smart Watchdog Public Portal (Streamlit :8602)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# ⚠️ 部署時請確認使用者與路徑（同 gov service 說明）。
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/home/ec2-user/ntpc-smart-watchdog
+
+EnvironmentFile=-/home/ec2-user/ntpc-smart-watchdog/.env
+
+ExecStart=/home/ec2-user/ntpc-smart-watchdog/.venv/bin/python -m streamlit run public/公開查詢.py \
+    --server.port 8602 \
+    --server.address 0.0.0.0 \
+    --server.headless true \
+    --browser.gatherUsageStats false
+
+Restart=always
+RestartSec=5
+Environment=STREAMLIT_SERVER_FILE_WATCHER_TYPE=none
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
