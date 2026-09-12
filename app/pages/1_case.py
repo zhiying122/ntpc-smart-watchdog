@@ -18,6 +18,7 @@ import streamlit as st
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
+from lib import case_status  # noqa: E402
 from lib import common  # noqa: E402
 from lib import inspector  # noqa: E402
 
@@ -59,6 +60,46 @@ chain = inspector.evidence_chain(row)
 
 # ---------- 案件標頭（R5.1）----------
 common.case_header(row)
+
+# ---------- 稽查決策條（行動優先）----------
+# 把「下決定」放在使用者一進頁面就看得到的位置：一句話結論 + 當前狀態 +
+# 三顆決策按鈕。決策即時寫入 case_status（跨頁共用、可持久化），並同步送出
+# 一筆 HITL 稽核回饋，讓「決策」與「模型回饋」都留下軌跡。
+_entity_id = str(row.get("park_id", park))
+_rec = case_status.get_status(_entity_id)
+common.decision_bar(row, _rec, case_status.PRIMARY_DECISIONS)
+
+# 決策動作 → 送出後對應的 HITL 回饋標籤（供模型改進，與狀態互補）
+_DECISION_FEEDBACK = {
+    "建議派查": "需進一步稽查",
+    "存疑待補": "資料問題",
+    "不成立結案": "誤報",
+}
+st.markdown("<div class='sw-decision-scope'>", unsafe_allow_html=True)
+_dc = st.columns([1, 1, 1, 2.2])
+for _i, _label in enumerate(case_status.PRIMARY_DECISIONS):
+    with _dc[_i]:
+        _is_primary = (_label == "建議派查")
+        if st.button(_label, key=f"decision::{_entity_id}::{_label}",
+                     use_container_width=True,
+                     type=("primary" if _is_primary else "secondary")):
+            _new = case_status.set_status(_entity_id, _label, actor="inspector")
+            # 同步送出對應 HITL 回饋（不改寫風險分，只留軌跡）
+            _fb_label = _DECISION_FEEDBACK.get(_label)
+            if _fb_label:
+                inspector.submit_hitl_feedback(
+                    _entity_id, f"risk::{_entity_id}::{row.get('year', '')}", _fb_label)
+            st.toast(f"已將本案標記為「{_new.status_label()}」", icon="✅")
+            st.rerun()
+with _dc[3]:
+    st.markdown(
+        f"<div style='color:{common.INK_MUTED};font-size:.76rem;line-height:1.5;"
+        f"padding-top:6px;'>決策即時記錄並跨頁同步：「建議派查」進入派工名單、"
+        f"「存疑待補」轉為調查中、「不成立結案」關閉案件。風險不等於違法，"
+        f"最終處置由稽查人員負責。</div>",
+        unsafe_allow_html=True,
+    )
+st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------- 風險評估雷達 / 分項加權貢獻（R5.1, R5.2）----------
 common.section("風險評估", "shield")

@@ -249,16 +249,16 @@ def _css():
       /* 8px spacing system */
       --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px; --s7:40px; --s8:48px;
       /* 統一尺寸規範 */
-      --radius:6px; --radius-sm:4px;
-      --page-px:40px;          /* 內容左右 padding（統一 grid 邊界）*/
-      --page-max:1280px;       /* 內容最大寬 */
-      --section-gap:var(--s6); /* 大區塊間距 32 */
+      --radius:8px; --radius-sm:5px;
+      --page-px:48px;          /* 內容左右 padding（加大，提升呼吸感）*/
+      --page-max:1320px;       /* 內容最大寬 */
+      --section-gap:44px;      /* 大區塊間距（拉開，降低報表壅擠感）*/
       --sub-gap:var(--s5);     /* 次區塊間距 24 */
-      --comp-gap:var(--s4);    /* 元件間距 16 */
-      --card-pad:20px;         /* 卡片內距（統一）*/
-      --control-h:38px;        /* 表單控制元件高度（統一）*/
-      --table-row-h:40px;      /* 表格列高（統一）*/
-      --sidebar-w:236px;
+      --comp-gap:18px;         /* 元件間距（略加大）*/
+      --card-pad:22px;         /* 卡片內距（統一，略加大）*/
+      --control-h:40px;        /* 表單控制元件高度（統一）*/
+      --table-row-h:46px;      /* 表格列高（加高，更好讀、更不擠）*/
+      --sidebar-w:248px;
     }}
 
     html, body, [class*="css"], .stApp {{
@@ -334,18 +334,22 @@ def _css():
     [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{ gap:2px !important; }}
     /* 側欄各 element-container 也去掉多餘上下 margin */
     [data-testid="stSidebar"] [data-testid="stElementContainer"] {{ margin:0 !important; }}
-    /* 導覽項目左右內距對齊、上方留一點呼吸間距 */
+    /* 導覽項目左右內距對齊 */
     [data-testid="stSidebar"] [data-testid="stPageLink"] {{ margin:0 var(--s2) !important; }}
-    /* 第一個導覽項與品牌區分隔線的間距：設為 16px（--s4），
-       與 footer（.sw-side-foot）的 padding-top:16px 對稱，
-       使「風險總覽上方」= 「輿情分析下方」的空間。 */
-    [data-testid="stSidebar"] [data-testid="stPageLink"]:first-of-type {{ margin-top:var(--s4) !important; }}
+    /* 分組標題（行政作業系統式檔案櫃分區）：小型全大寫石墨副標，
+       與 System Status footer 的區塊標題（.stt-h）同一語彙，維持側欄一致性。 */
+    [data-testid="stSidebar"] .sw-navgrp {{
+      color:{SIDEBAR_INK_DIM}; font-size:.66rem; font-weight:600;
+      letter-spacing:.12em; text-transform:uppercase;
+      margin:16px 14px 4px !important; padding:0; line-height:1.2; }}
+    /* 第一個分組標題緊貼品牌分隔線下方，間距略收（後續分組維持 16px 上距）。 */
+    [data-testid="stSidebar"] .sw-navgrp:first-of-type {{ margin-top:12px !important; }}
     [data-testid="stSidebar"] [data-testid="stPageLink"] a,
     [data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"] {{
-      display:flex !important; align-items:center; gap:10px; height:38px; padding:0 var(--s3) !important;
-      border-radius:var(--radius-sm); color:{SIDEBAR_INK} !important; font-size:.88rem;
-      text-decoration:none; margin:0 0 2px 0 !important; border-left:2px solid transparent;
-      transition:background .16s ease; background:transparent !important; }}
+      display:flex !important; align-items:center; gap:11px; height:40px; padding:0 12px !important;
+      border-radius:var(--radius-sm); color:{SIDEBAR_INK} !important; font-size:.885rem;
+      text-decoration:none; margin:0 0 3px 0 !important; border-left:2px solid transparent;
+      transition:background .16s ease, color .16s ease; background:transparent !important; }}
     [data-testid="stSidebar"] [data-testid="stPageLink"] a:hover,
     [data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"]:hover {{
       background:rgba(255,255,255,.06) !important; color:#F1F4F7 !important; }}
@@ -435,7 +439,8 @@ def _css():
     [data-testid="stExpander"] summary {{ font-weight:500; }}
     [data-testid="stAlert"] {{ border-radius:var(--radius); }}
     [data-testid="stPlotlyChart"], [data-testid="stVegaLiteChart"] {{
-      border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); padding:6px; }}
+      border:1px solid var(--border); border-radius:var(--radius); background:var(--surface);
+      padding:10px; box-shadow:0 1px 2px rgba(28,37,48,.04); }}
     .stTabs [data-baseweb="tab-list"] {{ gap:2px; border-bottom:1px solid var(--border); }}
     .stTabs [data-baseweb="tab"] {{ font-size:.88rem; color:var(--ink2); padding:8px 14px; }}
     .stTabs [aria-selected="true"] {{ color:var(--primary) !important; }}
@@ -443,11 +448,13 @@ def _css():
 
     /* ===== 頁面 Header + Breadcrumb（精準層級）===== */
     .sw-topbar {{ display:flex; align-items:flex-end; justify-content:space-between;
-      border-bottom:1px solid var(--border); padding-bottom:var(--s3); margin-bottom:var(--s4); gap:var(--s4); }}
-    .sw-crumb {{ color:var(--muted); font-size:.74rem; letter-spacing:.04em; margin-bottom:6px; }}
+      border-bottom:1px solid var(--border); padding-bottom:var(--s4); margin-bottom:var(--s5); gap:var(--s4); }}
+    .sw-crumb {{ color:var(--muted); font-size:.74rem; letter-spacing:.04em; margin-bottom:8px; }}
     .sw-crumb b {{ color:var(--ink2); font-weight:500; }}
-    .sw-ptitle {{ font-size:1.4rem; font-weight:700; color:var(--ink); line-height:1.25; }}
-    .sw-psub {{ color:var(--muted); font-size:.82rem; margin-top:5px; line-height:1.4; }}
+    .sw-ptitle {{ font-size:1.6rem; font-weight:700; color:var(--ink); line-height:1.2;
+      letter-spacing:.005em; }}
+    .sw-psub {{ color:var(--ink2); font-size:.86rem; margin-top:7px; line-height:1.5;
+      max-width:820px; }}
     .sw-meta {{ text-align:right; color:var(--muted); font-size:.72rem; line-height:1.8; white-space:nowrap; }}
     .sw-meta b {{ color:var(--ink2); font-weight:600; font-variant-numeric:tabular-nums; }}
     /* 右上角帳號區：目前登入角色（登出按鈕於下方以 Streamlit 元件呈現） */
@@ -466,36 +473,40 @@ def _css():
 
     /* ===== KPI stat：四格等寬等高、baseline 一致 ===== */
     .sw-stats {{ display:flex; gap:1px; background:var(--border); border:1px solid var(--border);
-      border-radius:var(--radius); overflow:hidden; }}
-    .sw-stats .cell {{ flex:1 1 0; min-height:92px; padding:var(--card-pad); background:var(--surface);
+      border-radius:var(--radius); overflow:hidden;
+      box-shadow:0 1px 2px rgba(28,37,48,.04); }}
+    .sw-stats .cell {{ flex:1 1 0; min-height:108px; padding:20px 22px; background:var(--surface);
       position:relative; display:flex; flex-direction:column; }}
     .sw-stats .cell.accent::before {{ content:''; position:absolute; left:0; top:0; bottom:0; width:3px;
       background:{RISK_BAR['high']}; }}
-    .sw-stats .lab {{ color:var(--muted); font-size:.74rem; font-weight:500; letter-spacing:.02em;
+    .sw-stats .lab {{ color:var(--muted); font-size:.76rem; font-weight:500; letter-spacing:.03em;
       display:flex; align-items:center; gap:6px; min-height:16px; }}
-    .sw-stats .val {{ color:var(--ink); font-size:1.7rem; font-weight:700; line-height:1.1; margin-top:auto;
-      font-variant-numeric:tabular-nums; }}
+    .sw-stats .val {{ color:var(--ink); font-size:2rem; font-weight:700; line-height:1.05; margin-top:auto;
+      font-variant-numeric:tabular-nums; letter-spacing:-.01em; }}
     .sw-stats .val.risk {{ color:{RISK['high'][0]}; }}
-    .sw-stats .sub {{ color:var(--muted); font-size:.72rem; margin-top:6px; min-height:14px; }}
+    .sw-stats .sub {{ color:var(--muted); font-size:.73rem; margin-top:8px; min-height:14px;
+      line-height:1.4; }}
 
     /* ===== Section Header：統一元件 ===== */
-    .sw-section {{ display:flex; align-items:center; gap:var(--s2); margin:var(--section-gap) 0 var(--comp-gap);
-      font-size:.92rem; font-weight:600; color:var(--ink); }}
+    .sw-section {{ display:flex; align-items:center; gap:10px; margin:var(--section-gap) 0 var(--comp-gap);
+      font-size:1rem; font-weight:600; color:var(--ink); letter-spacing:.01em; }}
     .sw-section svg {{ flex:0 0 16px; }}
-    .sw-section .ln {{ flex:1; height:1px; background:var(--border); margin-left:2px; }}
+    .sw-section .ln {{ flex:1; height:1px; background:var(--border); margin-left:4px; }}
     .sw-callout {{ border:1px solid var(--border); border-left:3px solid var(--primary);
-      background:var(--surface); border-radius:var(--radius); padding:var(--s3) var(--s4);
-      font-size:.86rem; color:var(--ink2); line-height:1.6; }}
+      background:var(--surface); border-radius:var(--radius); padding:14px 18px;
+      font-size:.87rem; color:var(--ink2); line-height:1.7;
+      box-shadow:0 1px 2px rgba(28,37,48,.04); }}
 
     /* ===== 企業資料表：固定列高、細框、tabular ===== */
     .sw-table {{ width:100%; border-collapse:collapse; background:var(--surface);
       border:1px solid var(--border); border-radius:var(--radius); overflow:hidden;
-      font-variant-numeric:tabular-nums; table-layout:auto; }}
+      font-variant-numeric:tabular-nums; table-layout:auto;
+      box-shadow:0 1px 2px rgba(28,37,48,.04); }}
     .sw-table thead th {{ background:var(--surface-alt); color:var(--muted); font-weight:600;
-      font-size:.72rem; letter-spacing:.04em; padding:10px 14px; text-align:right; white-space:nowrap;
+      font-size:.73rem; letter-spacing:.05em; padding:13px 16px; text-align:right; white-space:nowrap;
       border-bottom:1px solid var(--border-strong); }}
     .sw-table thead th.l {{ text-align:left; }}
-    .sw-table tbody td {{ height:var(--table-row-h); padding:0 14px; text-align:right; font-size:.85rem;
+    .sw-table tbody td {{ height:var(--table-row-h); padding:0 16px; text-align:right; font-size:.875rem;
       font-weight:400; border-top:1px solid var(--surface-sunk); color:var(--ink2); white-space:nowrap;
       font-variant-numeric:tabular-nums; vertical-align:middle; }}
     .sw-table tbody td.l {{ text-align:left; color:var(--ink); }}
@@ -511,21 +522,51 @@ def _css():
     .sw-bar-fill {{ height:100%; border-radius:2px; }}
 
     /* badge：固定尺寸一致 */
-    .sw-badge {{ display:inline-block; min-width:38px; text-align:center; padding:2px 10px;
-      border-radius:var(--radius-sm); font-size:.76rem; font-weight:700; line-height:1.5;
-      border:1px solid transparent; }}
+    .sw-badge {{ display:inline-block; min-width:40px; text-align:center; padding:3px 11px;
+      border-radius:999px; font-size:.75rem; font-weight:600; line-height:1.5;
+      border:1px solid transparent; letter-spacing:.02em; }}
 
     /* 卡片：統一內距，含等高變體 */
     .sw-panel {{ background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
-      padding:var(--card-pad); }}
+      padding:var(--card-pad); box-shadow:0 1px 2px rgba(28,37,48,.04); }}
     .sw-panel.fill {{ height:100%; box-sizing:border-box; }}
     .sw-scorecard {{ background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--primary);
-      border-radius:var(--radius); padding:var(--card-pad); margin-bottom:var(--s4); }}
+      border-radius:var(--radius); padding:var(--card-pad); margin-bottom:var(--s4);
+      box-shadow:0 1px 2px rgba(28,37,48,.04); }}
+
+    /* ===== 稽查決策條（行動優先 / 互動回饋）===== */
+    .sw-decisionbar {{ background:var(--surface); border:1px solid var(--border);
+      border-left:4px solid var(--primary); border-radius:var(--radius);
+      padding:16px 20px; margin:10px 0 4px;
+      display:flex; align-items:center; justify-content:space-between; gap:20px;
+      flex-wrap:wrap; transition:box-shadow .18s ease, border-color .18s ease; }}
+    .sw-decisionbar:hover {{ box-shadow:0 2px 10px rgba(28,37,48,.08); }}
+    .sw-db-verdict {{ flex:1 1 320px; min-width:280px; }}
+    .sw-db-eyebrow {{ color:var(--muted); font-size:.72rem; font-weight:600;
+      letter-spacing:.08em; text-transform:uppercase; display:flex; align-items:center;
+      gap:6px; margin-bottom:6px; }}
+    .sw-db-headline {{ color:var(--ink); font-size:1.02rem; font-weight:600;
+      line-height:1.5; }}
+    .sw-db-sub {{ color:var(--ink2); font-size:.82rem; margin-top:4px; line-height:1.5; }}
+    /* 當前狀態徽章：狀態切換時色彩即時變化，給予清楚的視覺回饋 */
+    .sw-statuspill {{ display:inline-flex; align-items:center; gap:7px;
+      padding:5px 14px; border-radius:999px; font-size:.82rem; font-weight:700;
+      border:1px solid transparent; transition:all .2s ease; white-space:nowrap; }}
+    .sw-statuspill .dot {{ width:8px; height:8px; border-radius:50%; flex:0 0 8px; }}
+    /* 決策按鈕列：把「下決定」放在使用者視線最先到達處 */
+    .sw-db-actions {{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }}
+
+    /* 決策條內的 Streamlit 按鈕：加大、hover 上浮、明確可點回饋 */
+    .sw-decision-scope .stButton>button {{ min-height:42px; padding:0 18px;
+      font-weight:600; font-size:.9rem; transition:all .16s ease; }}
+    .sw-decision-scope .stButton>button:hover {{ transform:translateY(-1px);
+      box-shadow:0 3px 10px rgba(28,37,48,.12); }}
+    .sw-decision-scope .stButton>button:active {{ transform:translateY(0); }}
 
     /* Empty / Loading state */
     .sw-empty {{ border:1px dashed var(--border-strong); border-radius:var(--radius); background:var(--surface-alt);
-      padding:var(--s6) var(--s5); text-align:center; color:var(--muted); font-size:.86rem; }}
-    .sw-empty .ttl {{ color:var(--ink2); font-weight:600; font-size:.92rem; margin:var(--s2) 0 var(--s1); }}
+      padding:40px var(--s5); text-align:center; color:var(--muted); font-size:.86rem; line-height:1.6; }}
+    .sw-empty .ttl {{ color:var(--ink2); font-weight:600; font-size:.94rem; margin:10px 0 var(--s1); }}
     @keyframes swpulse {{ 0%{{opacity:.55}}50%{{opacity:1}}100%{{opacity:.55}} }}
     .sw-skel {{ height:12px; border-radius:3px; background:var(--surface-sunk); animation:swpulse 1.4s infinite; }}
 
@@ -581,24 +622,38 @@ def _sidebar(active_key):
         <div class='sw-brand'>
           <div class='logo'>{icon('shield', 22, '#5FA0DB')}
             <span class='name'>Fiscalint</span></div>
-          <div class='tag'>企業級鑑識會計風險情報平台</div>
+          <div class='tag'>教保機構監理作業系統</div>
         </div>
         <div class='sw-nav-native'></div>
         """,
         unsafe_allow_html=True,
     )
 
-    # --- 2) 導覽（公務後台無登入、無角色）：固定顯示所有公務頁面 ---
+    # --- 2) 導覽（公務後台無登入、無角色）：依行政職能分組顯示所有公務頁面 ---
     # 公務後台為政府內部系統，所有頁面對公務人員一律開放；家長端已切分為獨立
     # 公眾查詢網（public/公開查詢.py），不在此導覽中。
+    # 分組（NAV_GROUPS）只影響呈現順序與分組標題，不新增／不刪除任何頁面。
+    # 重點：在 `with st.sidebar.container()` 區塊內，一律用「不帶 sidebar. 前綴」
+    # 的 st.markdown / st.page_link。若在此區塊內呼叫 st.sidebar.markdown，會跳出
+    # 容器、掛到側欄根層而破壞順序（先前分組標題全擠到底部的原因）。用容器內
+    # 相對 API 即可讓「分組標題 → 該組頁面」依序、成組排列。
     with st.sidebar.container():
-        for key, disp, ic, page in NAV_ALL:
-            # page_link 在離線測試環境（AppTest 無 page registry）會丟
-            # KeyError('url_pathname')；容錯以確保導覽失敗不中斷整頁渲染。
-            try:
-                st.page_link(page, label=disp, icon=_NAV_EMOJI.get(key, "▪"))
-            except Exception:  # noqa: BLE001
-                pass
+        for grp_title, keys in NAV_GROUPS:
+            st.markdown(
+                f"<div class='sw-navgrp'>{html.escape(grp_title)}</div>",
+                unsafe_allow_html=True,
+            )
+            for key in keys:
+                item = _NAV_BY_KEY.get(key)
+                if not item:
+                    continue
+                _k, disp, _ic, page = item
+                # page_link 在離線測試環境（AppTest 無 page registry）會丟
+                # KeyError('url_pathname')；容錯以確保導覽失敗不中斷整頁渲染。
+                try:
+                    st.page_link(page, label=disp, icon=_NAV_EMOJI.get(key, "▪"))
+                except Exception:  # noqa: BLE001
+                    pass
 
     # --- 3) 目前登入角色 + 登出：已移至右上角 header（見 _render_topbar_account）---
 
@@ -644,6 +699,22 @@ for _item in NAV_ALL:
         _seen_keys.add(_item[0])
         _dedup.append(_item)
 NAV_ALL = _dedup
+
+# ---------------------------------------------------------------------------
+# 側欄導覽分組（行政作業系統式）：把平列導覽依「行政職能」分區並加分組標題，
+# 讓側欄一眼看出「監理總覽 / 案件作業 / 分析工具 / 系統」的檔案櫃結構，
+# 貼近政府機關內部系統的資訊架構。分組只影響「呈現順序與標題」，不新增、
+# 不刪除任何頁面（頁面本身完全不變），故功能零更動。
+#
+# NAV_GROUPS: [(分組標題, [該組的 nav key（順序即顯示順序）]), ...]
+NAV_GROUPS = [
+    ("監理總覽",  ["主頁", "2_map"]),
+    ("案件作業",  ["1_case", "5_dispatch"]),
+    ("分析工具",  ["3_ai", "4_sentiment"]),
+    ("系統管理",  ["7_integration", "6_governance", "8_health", "9_public_preview"]),
+]
+# 以 key 快速取回完整 nav item（key -> (key, disp, icon, page)）。
+_NAV_BY_KEY = {item[0]: item for item in NAV_ALL}
 
 
 def setup_page(page_title, header_title, subtitle=None, layout="wide",
@@ -882,6 +953,72 @@ def case_header(row):
         """,
         unsafe_allow_html=True,
     )
+
+
+def _one_line_verdict(row):
+    """由現有鑑識指標推導「一句話結論」，供決策條快速呈現（不造假）。
+
+    取最能代表風險的因子組合成一句話；無顯著因子時回中性訊息。
+    """
+    parts = []
+    ratio = row.get("expense_income_ratio")
+    if pd.notna(ratio) and ratio > 1:
+        parts.append(f"收支比 {ratio:.2f}（入不敷出）")
+    pen = row.get("penalty_count")
+    if pd.notna(pen) and int(pen) > 0:
+        parts.append(f"{int(pen)} 次裁罰紀錄")
+    mad = row.get("benford_mad")
+    if pd.notna(mad) and mad >= 0.015:
+        parts.append("班佛定律數字分布異常")
+    yoy = row.get("expense_yoy_pct")
+    if pd.notna(yoy) and abs(yoy) >= 20:
+        parts.append(f"支出年變動 {yoy:.0f}%")
+    if not parts:
+        return "各項鑑識指標均在常態範圍，未偵測到顯著風險因子。"
+    head = "、".join(parts[:2])
+    tail = f"（另有 {len(parts) - 2} 項）" if len(parts) > 2 else ""
+    return f"主要風險訊號：{head}{tail}。"
+
+
+def status_pill(status_key, label):
+    """當前案件狀態徽章（依狀態語意色即時配色）。"""
+    fg, bg, bd = RISK.get(status_key, RISK["medium"])
+    return (f"<span class='sw-statuspill' style='background:{bg};color:{fg};"
+            f"border-color:{bd};'><span class='dot' style='background:{fg};'></span>"
+            f"{html.escape(str(label))}</span>")
+
+
+def decision_bar(row, record, decisions):
+    """
+    互動式稽查決策條（行動優先）：一句話結論 + 當前狀態徽章 + 決策按鈕列。
+
+    放在案件標頭正下方，讓稽查官「先做決定、證據往下支撐」。
+    本函式只負責渲染上半部（結論 + 狀態）與按鈕容器的 CSS scope；決策按鈕
+    本身由頁面用 st.columns + st.button 呈現（才能接 session 與持久化）。
+
+    參數：
+      row：機構資料列。
+      record：case_status.CaseRecord（目前狀態）。
+      decisions：要顯示的決策標籤序列（供頁面產生按鈕，此處僅用於註記）。
+    回傳：一句話結論字串（頁面可重用）。
+    """
+    verdict = _one_line_verdict(row)
+    pill = status_pill(record.status_risk_key(), record.status_label())
+    updated = (f"　·　最後更新 {html.escape(record.updated_at)}"
+               if record.updated_at else "")
+    st.markdown(
+        f"""
+        <div class='sw-decisionbar'>
+          <div class='sw-db-verdict'>
+            <div class='sw-db-eyebrow'>{icon('ai', 14, INK_MUTED)} AI 研判摘要</div>
+            <div class='sw-db-headline'>{html.escape(verdict)}</div>
+            <div class='sw-db-sub'>目前狀態：{pill}{updated}</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    return verdict
 
 
 def risk_factors(row):
