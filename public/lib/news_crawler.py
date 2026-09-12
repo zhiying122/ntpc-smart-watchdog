@@ -35,6 +35,32 @@ import requests
 _GNEWS_RSS = ("https://news.google.com/rss/search?q={query}"
               "&hl=zh-TW&gl=TW&ceid=TW:zh-Hant")
 
+#: Bing News 公開 RSS 搜尋端點（繁中、台灣）。與 Google News 互補的合規新聞
+#: 聚合來源，同樣為公開 RSS、免金鑰、不需登入。
+_BING_RSS = ("https://www.bing.com/news/search?q={query}"
+             "&format=rss&setlang=zh-tw&cc=tw")
+
+#: 多組查詢用的附加關鍵字：以「園名核心詞 + 行政區 + 關鍵字」擴大新聞覆蓋，
+#: 這些關鍵字對應家長最關心的面向（收費/評鑑/安全/師資），提高召回率。
+#: 空字串代表「只有園名 + 行政區 + 幼兒園」的基本查詢。
+_QUERY_TOPICS: tuple[str, ...] = ("", "收費", "評鑑", "家長", "安全")
+
+#: 台灣主要媒體的公開 RSS 直連來源（補強層）。這些為各媒體自家提供的公開
+#: 「最新新聞」feed（免金鑰、不需登入），屬合規範圍。與 Google/Bing News
+#: 聚合器互補：聚合器負責「按園名搜尋」，直連來源提供「第一手、無聚合延遲」。
+#: 因是全站最新 feed（無關鍵字搜尋），抓下後以園名核心詞比對過濾（_title_matches）。
+#: 端點皆經實測回傳合法 RSS；(媒體顯示名, RSS URL)。
+_MEDIA_RSS: tuple[tuple[str, str], ...] = (
+    ("自由時報", "https://news.ltn.com.tw/rss/society.xml"),
+    ("自由時報", "https://news.ltn.com.tw/rss/life.xml"),
+    ("東森新聞雲", "https://feeds.feedburner.com/ettoday/realtime"),
+    ("鏡週刊", "https://www.mirrormedia.mg/rss/rss.xml"),
+    ("中央社", "https://feeds.feedburner.com/rsscna/social"),
+    ("中央社", "https://feeds.feedburner.com/rsscna/lifehealth"),
+    ("聯合報", "https://udn.com/rssfeed/news/2/6638?ch=news"),
+    ("Newtalk新聞", "https://newtalk.tw/rss/all"),
+)
+
 _HEADERS = {
     "User-Agent": "SmartWatchdog-ParentPortal/1.0 (public kindergarten news aggregation)",
     "Accept-Language": "zh-TW",
@@ -117,12 +143,13 @@ def name_core(park_name: str) -> str:
     return core or re.sub(r"幼兒園$", "", name).strip() or name
 
 
-def build_query(park_name: str, district: str = "") -> str:
-    """由機構全名 + 行政區組出精確的新聞查詢字串。
+def build_query(park_name: str, district: str = "", extra: str = "") -> str:
+    """由機構全名 + 行政區（+ 可選關鍵字）組出精確的新聞查詢字串。
 
-    以「園名核心詞 + 行政區 + 幼兒園」組合，並用雙引號綁定園名核心詞，
-    降低同名雜訊。例：核心「新莊非營利」、區「新莊區」→
-        '"新莊非營利" 新莊區 幼兒園'。
+    以「園名核心詞 + 行政區 + 幼兒園（+ 關鍵字）」組合，並用雙引號綁定園名
+    核心詞，降低同名雜訊。例：核心「新莊非營利」、區「新莊區」、關鍵字「收費」→
+        '"新莊非營利" 新莊區 幼兒園 收費'。
+    extra 為空時即為基本查詢（向後相容）。
     """
     core = name_core(park_name)
     if not core:
@@ -132,6 +159,9 @@ def build_query(park_name: str, district: str = "") -> str:
     if d:
         parts.append(d)
     parts.append("幼兒園")
+    e = (extra or "").strip()
+    if e:
+        parts.append(e)
     return " ".join(parts)
 
 
@@ -197,13 +227,26 @@ def fetch_news(park_name: str, district: str = "", *, timeout: float = 8.0,
     timeout / limit / reference:
         逾時秒數 / 最多筆數 / 時效參考日。
     """
-    core = name_core(park_name)
+    ref = reference or date.today()
     query = build_query(park_name, district)
     if not query:
         return []
-    ref = reference or date.today()
+    return _fetch_rss(_GNEWS_RSS, query, park_name, district,
+                      platform="google_news", timeout=timeout,
+                      limit=limit, reference=ref)
 
-    url = _GNEWS_RSS.format(query=quote(query))
+
+def _fetch_rss(endpoint: str, query: str, park_name: str, district: str, *,
+               platform: str, timeout: float, limit: int,
+               reference: date) -> list[dict]:
+    """抓取單一 RSS feed 並解析為 records（Google News / Bing News 共用）。
+
+    純解析＋精準比對，連線/解析錯誤一律回空清單（不拋例外）。每筆 record 附
+    source_platform（google_news / bing_news）供聚合層去重與來源計數；沿用
+    _title_matches 的責任 AI 精準比對（避免同名/泛稱張冠李戴）。
+    """
+    core = name_core(park_name)
+    url = endpoint.format(query=quote(query))
     try:
         resp = requests.get(url, headers=_HEADERS, timeout=timeout)
         resp.raise_for_status()
@@ -224,13 +267,14 @@ def fetch_news(park_name: str, district: str = "", *, timeout: float = 8.0,
         pub_date = _parse_pubdate(pub)
         if pub_date is None:
             continue
-        if (ref - pub_date).days > _MAX_AGE_DAYS:
+        if (reference - pub_date).days > _MAX_AGE_DAYS:
             continue
         if not title or not link:
             continue
 
         records.append({
             "source_type": "news",
+            "source_platform": platform,
             "source_name": source_name or "新聞來源",
             "title": title,
             "excerpt": title,
@@ -242,3 +286,150 @@ def fetch_news(park_name: str, district: str = "", *, timeout: float = 8.0,
             break
 
     return records
+
+
+def _fetch_media_rss(media_name: str, url: str, park_name: str, district: str,
+                     *, timeout: float, reference: date) -> list[dict]:
+    """抓取單一台灣媒體的全站 RSS，用園名核心詞比對過濾出提到本園的報導。
+
+    與聚合器（Google/Bing）不同：這是「全站最新」feed（無關鍵字搜尋），故抓下
+    後只保留標題含園名核心詞的項目——且核心詞為地區泛稱時要求完整全名
+    （沿用 _title_matches 的責任 AI 精準比對，避免張冠李戴）。命中率低但命中即
+    為第一手來源。連線/解析錯誤回空清單，不拋例外、不影響其他來源。
+
+    媒體名以 feed 對應的固定名稱標記（這些全站 feed 的 item 多無 source 元素）。
+    只回傳確實比對到本園（matched=True）的項目，避免把不相干新聞塞進來。
+    """
+    core = name_core(park_name)
+    if not core:
+        return []
+    try:
+        resp = requests.get(url, headers=_HEADERS, timeout=timeout)
+        resp.raise_for_status()
+        root = ET.fromstring(resp.text)
+    except (requests.RequestException, ET.ParseError, ValueError):
+        return []
+
+    records: list[dict] = []
+    for item in root.findall(".//item"):
+        title = (item.findtext("title", "") or "").strip()
+        link = (item.findtext("link", "") or "").strip()
+        pub = item.findtext("pubDate", "") or ""
+        if not title or not link:
+            continue
+        # 全站 feed：只留標題確實對應本園者（精準比對，避免同名/泛稱誤綁）。
+        if not _title_matches(title, core, district, park_name):
+            continue
+        pub_date = _parse_pubdate(pub)
+        if pub_date is None:
+            continue
+        if (reference - pub_date).days > _MAX_AGE_DAYS:
+            continue
+        records.append({
+            "source_type": "news",
+            "source_platform": "media_rss",
+            "source_name": media_name,
+            "title": title,
+            "excerpt": title,
+            "url": link,
+            "published": pub_date.isoformat(),
+            "matched": True,
+        })
+    return records
+
+
+def _norm_title(title: str) -> str:
+    """正規化標題作為跨來源去重鍵：去除標點/空白/全半形差異，取前綴片段。
+
+    同一則新聞在 Google News / Bing / 媒體原站可能有細微標題差異（媒體名後綴、
+    空白、標點），純字串比對會漏。這裡移除非中英數字元、轉小寫，讓「同一則」
+    在不同來源產生相同的鍵。
+    """
+    t = (title or "").lower()
+    return re.sub(r"[^0-9a-z\u4e00-\u9fff]", "", t)
+
+
+def _dedupe(records: list[dict]) -> list[dict]:
+    """跨來源去重：同一則新聞常同時出現在 Google News / Bing / 媒體原站，
+    且三者 URL 各不相同（聚合器用自家轉址連結）。故以「正規化標題 + 發布日」
+    為主鍵（跨來源穩定），並輔以 URL 鍵（防同來源分頁重複）。
+
+    偏好保留原站連結：若重複項中出現媒體直連（media_rss，URL 為原文），
+    以它取代先前的聚合器轉址版，讓家長點到的是新聞原文。
+    依發布日新到舊排序後回傳。
+    """
+    by_key: dict[str, dict] = {}   # 主鍵（標題+日期）→ 已保留的 record
+    order: list[str] = []          # 保留插入順序
+    url_seen: dict[str, str] = {}  # URL → 主鍵（防同 URL 重複）
+
+    for r in records:
+        title_key = f"{_norm_title(r.get('title', ''))}|{r.get('published', '')}"
+        url = (r.get("url") or "").strip().lower()
+        # 若此 URL 先前已出現，對應回同一主鍵（同來源分頁等）。
+        key = url_seen.get(url, title_key) if url else title_key
+
+        if key not in by_key:
+            by_key[key] = r
+            order.append(key)
+        else:
+            # 已有同則：若新的是媒體原站連結而舊的不是，替換為原文版。
+            existing = by_key[key]
+            if (r.get("source_platform") == "media_rss"
+                    and existing.get("source_platform") != "media_rss"):
+                by_key[key] = r
+        if url:
+            url_seen[url] = key
+
+    out = [by_key[k] for k in order]
+    out.sort(key=lambda x: x.get("published", ""), reverse=True)
+    return out
+
+
+def fetch_all_news(park_name: str, district: str = "", *, timeout: float = 8.0,
+                   per_source_limit: int = 12, limit: int = 30,
+                   reference: date | None = None) -> list[dict]:
+    """合規多來源新聞聚合：多組 Google News 查詢 + Bing News，去重後回傳。
+
+    來源全部為公開 RSS（免金鑰、不需登入），符合政府級合規邊界。做法：
+      - Google News：對 _QUERY_TOPICS 每個關鍵字各查一次（園名+區+幼兒園+關鍵字），
+        提高召回率（收費/評鑑/安全/師資等家長關心面向）。
+      - Bing News：以基本查詢補一組互補來源。
+      - 全部合併後 _dedupe 去重（同則新聞跨來源只留一份），依日期新到舊排序。
+
+    每筆 record 帶 source_platform（google_news/bing_news）與 matched 精準比對
+    旗標，呈現層據此標示來源組成與是否納入分級。任一來源失敗只影響該來源
+    （回空），不中斷其他來源。
+
+    參數
+    ----
+    per_source_limit：單一查詢/來源最多筆數。
+    limit：去重後回傳總上限。
+    """
+    ref = reference or date.today()
+    if not name_core(park_name):
+        return []
+
+    collected: list[dict] = []
+    # 多組 Google News 查詢（不同關鍵字面向）。
+    for topic in _QUERY_TOPICS:
+        q = build_query(park_name, district, extra=topic)
+        if not q:
+            continue
+        collected.extend(_fetch_rss(
+            _GNEWS_RSS, q, park_name, district, platform="google_news",
+            timeout=timeout, limit=per_source_limit, reference=ref))
+
+    # Bing News（基本查詢，互補來源）。
+    q_bing = build_query(park_name, district)
+    if q_bing:
+        collected.extend(_fetch_rss(
+            _BING_RSS, q_bing, park_name, district, platform="bing_news",
+            timeout=timeout, limit=per_source_limit, reference=ref))
+
+    # 台灣主要媒體 RSS 直連（第一手來源，全站 feed 以園名比對過濾）。
+    for media_name, media_url in _MEDIA_RSS:
+        collected.extend(_fetch_media_rss(
+            media_name, media_url, park_name, district,
+            timeout=timeout, reference=ref))
+
+    return _dedupe(collected)[:limit]

@@ -162,12 +162,14 @@ def snapshot_meta() -> dict | None:
 
 @st.cache_data(show_spinner=False, ttl=6 * 3600)
 def fetch_live_news(park_name: str, district: str) -> list[dict]:
-    """即時抓取本機構的公開新聞（快取 6 小時，隨時間自動更新）。
+    """即時抓取本機構的公開新聞（多來源聚合，快取 6 小時，隨時間自動更新）。
 
+    來源＝多組 Google News 查詢 + Bing News（皆公開 RSS、免金鑰、合規）。
     僅保留與本機構精確比對成功（matched=True）的新聞，避免同名/同地區張冠
     李戴；抓不到或連線失敗回空清單（由呼叫端退回示範資料）。
+    每筆帶 source_platform（google_news/bing_news）供頁面標示來源組成。
     """
-    recs = nc.fetch_news(park_name, district, limit=15, reference=TODAY)
+    recs = nc.fetch_all_news(park_name, district, limit=30, reference=TODAY)
     return [r for r in recs if r.get("matched")]
 
 
@@ -178,12 +180,13 @@ def attention_for(park_id: str, park_name: str, district: str, sentiment_data: d
       - items：合併後、依時間排序的 SentimentItem 清單。
       - summary：sentiment_watch 的家長友善分級摘要。
       - index：輿情關注指數（診斷式白盒總評分）。
-      - meta：{'live_news': n, 'demo': n, 'has_demo': bool}，供頁面標示來源組成。
+      - meta：來源組成計數，供頁面「資料來源透明分層」呈現。
 
     資料組成：
-      - 真實新聞：以園名+行政區精確抓取，只計 matched=True。
-      - 示範資料：sentiment_demo.json 內該園的多來源（Google評論/FB/IG/部落格
-        等）示範項目，標明 DEMO。
+      - 真實新聞：多來源（Google News 多組查詢 + Bing News）即時抓取，只計
+        matched=True；meta 分別記各平台則數。
+      - 示範資料：sentiment_demo.json 內該園的社群多來源（Google評論/FB/IG/
+        部落格等）示範項目，標明 DEMO（正式版待各平台官方 API 授權接入）。
     """
     live_recs = fetch_live_news(park_name, district)
     obj = sentiment_data.get("institutions", {}).get(str(park_id))
@@ -193,8 +196,17 @@ def attention_for(park_id: str, park_name: str, district: str, sentiment_data: d
     items = sw.load_items_from_records(all_recs)
     summary = sw.summarize_attention(items, reference=TODAY)
     index = ss.compute_index(items, reference=TODAY)
+    # 各新聞平台的即時則數（供透明分層標示「已接入來源」）。
+    _gnews = sum(1 for r in live_recs if r.get("source_platform") == "google_news")
+    _bing = sum(1 for r in live_recs if r.get("source_platform") == "bing_news")
+    _media = [r for r in live_recs if r.get("source_platform") == "media_rss"]
+    _media_names = sorted({r.get("source_name", "") for r in _media if r.get("source_name")})
     meta = {
         "live_news": len(live_recs),
+        "google_news": _gnews,
+        "bing_news": _bing,
+        "media_rss": len(_media),
+        "media_names": _media_names,
         "demo": len(demo_recs),
         "has_demo": bool(demo_recs),
     }
@@ -359,6 +371,23 @@ st.markdown(
     .chip { display:inline-block; padding:3px 11px; border-radius:999px;
       font-size:.76rem; background:var(--sage-tint); border:1px solid var(--border-soft);
       color:var(--ink-dim); margin-right:6px; }
+
+    /* 資料來源透明分層：已接入(即時新聞) vs 規劃中(社群待 API)。
+       合規展示——讓評審與家長一眼看懂什麼是真實即時、什麼是規劃中。 */
+    .src-tiers { margin:12px 0 4px; border:1px solid var(--border);
+      border-radius:var(--radius-sm); overflow:hidden; background:var(--surface); }
+    .src-tier { display:flex; align-items:flex-start; gap:12px; padding:11px 15px; }
+    .src-tier + .src-tier { border-top:1px solid var(--border-soft); }
+    .src-tag { flex:0 0 auto; font-size:.74rem; font-weight:700;
+      padding:3px 10px; border-radius:999px; white-space:nowrap; margin-top:1px; }
+    .src-tag.src-live { color:var(--safe-text); background:var(--safe-soft);
+      border:1px solid rgba(91,158,122,.35); }
+    .src-tag.src-plan { color:var(--ink-dim); background:var(--bg-soft);
+      border:1px solid var(--border); }
+    .src-body { font-size:.86rem; color:var(--ink-strong); line-height:1.55; }
+    .src-body b { font-weight:700; }
+    .src-detail { display:block; font-size:.76rem; color:var(--ink-dim);
+      margin-top:2px; line-height:1.6; }
 
     .kv { width:100%; border-collapse:collapse; margin-top:6px; }
     .kv td { padding:12px 14px; border-bottom:1px solid var(--border-soft);
@@ -1184,17 +1213,56 @@ def render_attention(park_id: str, park_name: str, district: str):
             park_id, park_name, district, sentiment_data)
     color = pmap.color_for_level(summary.level)
 
-    # 來源組成標示（真實新聞 vs 示範資料）
-    src_bits = []
-    if meta["live_news"]:
-        src_bits.append(f"即時新聞 {meta['live_news']} 則")
-    if meta["demo"]:
-        src_bits.append(f"示範多來源 {meta['demo']} 則")
-    src_txt = "、".join(src_bits) if src_bits else "尚無資料"
-
     st.markdown(
-        f"<span class='badge' style='background:{color}'>近期關注度：{pmap.level_label(summary.level)}</span>"
-        + f"　<span class='chip'>資料組成：{html.escape(src_txt)}</span>",
+        f"<span class='badge' style='background:{color}'>"
+        f"近期關注度：{pmap.level_label(summary.level)}</span>",
+        unsafe_allow_html=True)
+
+    # ---- 資料來源透明分層（合規揭露：什麼是即時真實、什麼是規劃中）----
+    # 已接入＝合規公開 RSS 即時抓取（可回溯、附原文連結）；
+    # 規劃中＝社群平台，正式版經官方 API 授權接入，不爬需登入內容。
+    _live_bits = []
+    if meta.get("google_news"):
+        _live_bits.append(f"Google News {meta['google_news']} 則")
+    if meta.get("bing_news"):
+        _live_bits.append(f"Bing News {meta['bing_news']} 則")
+    if meta.get("media_rss"):
+        _live_bits.append(f"媒體直連 {meta['media_rss']} 則")
+    _live_summary = ("、".join(_live_bits) if _live_bits
+                     else "近期無精確對應之公開新聞")
+    _hit_media = "、".join(meta.get("media_names") or [])
+    _hit_media_txt = (f"　·　本次命中：{_hit_media}" if _hit_media else "")
+    _demo_note = (f"（本頁另有 {meta['demo']} 則社群示範資料 DEMO）"
+                  if meta.get("demo") else "")
+    st.markdown(
+        "<div class='src-tiers'>"
+        # 已接入層 1：新聞聚合器（可按園名搜尋）
+        "<div class='src-tier'>"
+        "<span class='src-tag src-live'>● 已接入・即時</span>"
+        "<span class='src-body'><b>新聞聚合器</b>"
+        "<span class='src-detail'>Google News、Bing News 公開 RSS（免金鑰・合規・可按園名搜尋）"
+        f"　·　本次即時抓取：{html.escape(_live_summary)}</span></span>"
+        "</div>"
+        # 已接入層 2：台灣主要媒體 RSS 直連（第一手來源）
+        "<div class='src-tier'>"
+        "<span class='src-tag src-live'>● 已接入・直連</span>"
+        "<span class='src-body'><b>台灣主要媒體 RSS</b>"
+        "<span class='src-detail'>自由時報、東森新聞雲、鏡週刊、中央社、聯合報、"
+        "Newtalk（各媒體公開 RSS 直連，第一手來源）"
+        f"{html.escape(_hit_media_txt)}</span></span>"
+        "</div>"
+        # 規劃中：社群平台（明列各平台正式版對應的官方 API，展示合規與架構成熟度）
+        "<div class='src-tier'>"
+        "<span class='src-tag src-plan'>○ 規劃中・待官方 API 授權</span>"
+        "<span class='src-body'><b>社群與評論平台</b>"
+        "<span class='src-detail'>"
+        "Google 評論（正式版接 Google Places API・需授權金鑰）、"
+        "Facebook／Instagram（Meta Graph API・需粉專授權）、"
+        "Dcard（官方 API・不繞過存取控制）"
+        "　·　一律經官方授權接入，不爬需登入或違反服務條款之內容"
+        f"{html.escape(_demo_note)}</span></span>"
+        "</div>"
+        "</div>",
         unsafe_allow_html=True)
 
     # ---- 輿情關注指數（診斷式白盒總評分，可攤開）----
@@ -1344,9 +1412,12 @@ st.markdown(
     <div class="foot">
     ・機構基本資料、收費、評鑑、裁罰為公開資料集；「查無公開資料」表示該欄位
     目前無對應公開來源，並非機構有無問題之判斷。<br>
-    ・「公開輿情觀測」的新聞為即時蒐集之公開新聞報導；Google 評論／Facebook／
-    Instagram／部落格等為<b>示範資料（DEMO）</b>，正式版需透過各平台官方 API
-    授權接入，且不會蒐集需登入才可見之內容。<br>
+    ・「公開輿情觀測」的新聞為即時蒐集之公開新聞報導，來源為 Google News、
+    Bing News 公開新聞聚合，以及自由時報、東森、鏡週刊、中央社、聯合報、Newtalk
+    等台灣主要媒體之公開 RSS 直連（皆免金鑰、不需登入）；Google 評論、Facebook、
+    Instagram、Dcard 等社群平台為<b>示範資料（DEMO）</b>，正式版一律透過各平台
+    官方 API（如 Google Places API、Meta Graph API）授權接入，不繞過存取控制、
+    不蒐集需登入才可見之內容。<br>
     ・本站只呈現公開資訊與公開網路討論觀測，不含任何內部評分或分級，
     與教育局內部稽查系統採網路與主機隔離。<br>
     ・地址定位使用 OpenStreetMap／Nominatim 免費服務，不儲存您輸入的地址。<br>

@@ -277,3 +277,120 @@ def test_title_match_generic_core_requires_full_name():
 def test_build_query_binds_core_and_district():
     q = nc.build_query("新北市新莊非營利幼兒園", "新莊區")
     assert "新莊非營利" in q and "新莊區" in q and "幼兒園" in q
+
+
+def test_build_query_appends_extra_keyword():
+    """build_query 帶關鍵字時應附加於查詢末（多組查詢用）。"""
+    q = nc.build_query("新北市新莊非營利幼兒園", "新莊區", extra="收費")
+    assert "新莊非營利" in q and "新莊區" in q and "幼兒園" in q and "收費" in q
+    # 無關鍵字時向後相容，不應多出空白關鍵字。
+    q0 = nc.build_query("新北市新莊非營利幼兒園", "新莊區")
+    assert q0.endswith("幼兒園")
+
+
+def test_dedupe_removes_same_url_across_sources():
+    """跨來源去重：同 URL 只保留一則，並依發布日新到舊排序。"""
+    recs = [
+        {"url": "http://a", "title": "甲", "published": "2026-08-01",
+         "source_platform": "google_news"},
+        {"url": "http://a", "title": "甲(重複)", "published": "2026-08-01",
+         "source_platform": "bing_news"},
+        {"url": "http://b", "title": "乙", "published": "2026-09-01",
+         "source_platform": "bing_news"},
+    ]
+    out = nc._dedupe(recs)
+    assert len(out) == 2                      # 同 URL 去重
+    assert out[0]["url"] == "http://b"        # 較新者在前
+
+
+def test_dedupe_merges_same_news_across_sources_different_urls():
+    """同一則新聞跨來源（URL 各異、標題有標點差異）應合併為一則，
+    且保留媒體原站連結（家長點到原文，非聚合器轉址）。"""
+    recs = [
+        {"url": "https://news.google.com/rss/a", "title": "某幼兒園事件 家長怒",
+         "published": "2026-09-01", "source_platform": "google_news"},
+        {"url": "https://www.bing.com/news/b", "title": "某幼兒園事件，家長怒",
+         "published": "2026-09-01", "source_platform": "bing_news"},
+        {"url": "https://news.ltn.com.tw/c", "title": "某幼兒園事件 家長怒",
+         "published": "2026-09-01", "source_platform": "media_rss"},
+    ]
+    out = nc._dedupe(recs)
+    assert len(out) == 1                                # 三來源同則合併
+    assert out[0]["source_platform"] == "media_rss"     # 保留原站連結
+    assert "ltn.com.tw" in out[0]["url"]
+
+
+def test_dedupe_falls_back_to_title_date_when_no_url():
+    """URL 缺失時以「標題+日期」為去重鍵。"""
+    recs = [
+        {"url": "", "title": "同標題", "published": "2026-09-01"},
+        {"url": "", "title": "同標題", "published": "2026-09-01"},
+        {"url": "", "title": "同標題", "published": "2026-08-01"},
+    ]
+    out = nc._dedupe(recs)
+    assert len(out) == 2                      # 標題同但日期不同者視為兩則
+
+
+def test_fetch_all_news_aggregates_and_dedupes(monkeypatch):
+    """多來源聚合：多組 Google News + Bing 的結果合併並去重（不觸網）。"""
+    calls = {"n": 0}
+
+    def _fake_rss(endpoint, query, park_name, district, *, platform,
+                  timeout, limit, reference):
+        calls["n"] += 1
+        # 每次回傳同一則（同 URL），驗證跨查詢/跨來源去重成一則。
+        return [{
+            "source_type": "news", "source_platform": platform,
+            "source_name": "測試媒體", "title": "某幼兒園新聞",
+            "excerpt": "某幼兒園新聞", "url": "http://same",
+            "published": "2026-09-01",
+            "matched": True,
+        }]
+
+    monkeypatch.setattr(nc, "_fetch_rss", _fake_rss)
+    # 媒體 RSS 直連也 mock 掉，避免測試觸網（回空即可）。
+    monkeypatch.setattr(nc, "_fetch_media_rss", lambda *a, **k: [])
+    out = nc.fetch_all_news("新北市新莊非營利幼兒園", "新莊區", reference=REF)
+    assert calls["n"] >= 2                     # 至少多組查詢 + Bing 都被呼叫
+    assert len(out) == 1                       # 同 URL 去重成一則
+
+
+def test_fetch_all_news_empty_when_no_core():
+    """園名無可辨識核心詞時回空清單，不觸網。"""
+    assert nc.fetch_all_news("", "") == []
+
+
+def test_media_rss_filters_to_matching_park(monkeypatch):
+    """台灣媒體全站 RSS 直連：只保留標題確實對應本園者（精準比對）。"""
+    fake = (
+        '<?xml version="1.0"?><rss><channel>'
+        '<item><title>新莊非營利幼兒園辦親子活動</title><link>http://m/1</link>'
+        '<pubDate>Wed, 10 Sep 2026 08:00:00 +0800</pubDate></item>'
+        '<item><title>某小學運動會登場</title><link>http://m/2</link>'
+        '<pubDate>Wed, 10 Sep 2026 09:00:00 +0800</pubDate></item>'
+        '</channel></rss>'
+    )
+
+    class _R:
+        text = fake
+        def raise_for_status(self):  # noqa: D401
+            pass
+
+    monkeypatch.setattr(nc.requests, "get", lambda *a, **k: _R())
+    recs = nc._fetch_media_rss("自由時報", "http://x",
+                               "新北市新莊非營利幼兒園", "新莊區",
+                               timeout=5, reference=REF)
+    assert len(recs) == 1                          # 只命中對應本園那則
+    assert recs[0]["source_platform"] == "media_rss"
+    assert recs[0]["source_name"] == "自由時報"
+    assert recs[0]["matched"] is True
+
+
+def test_media_rss_network_error_returns_empty(monkeypatch):
+    """媒體 RSS 連線錯誤回空清單，不拋例外、不影響其他來源。"""
+    def _boom(*a, **k):
+        raise nc.requests.RequestException("連線失敗")
+
+    monkeypatch.setattr(nc.requests, "get", _boom)
+    assert nc._fetch_media_rss("自由時報", "http://x", "某某幼兒園", "板橋區",
+                               timeout=5, reference=REF) == []
