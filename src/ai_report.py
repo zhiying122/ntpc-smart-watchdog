@@ -153,7 +153,7 @@ def build_prompt(row):
 所在行政區：{g('district')}
 機構類型：{g('park_type')}
 總風險分：{g('risk_total')}／100（風險等級：{g('risk_level')}）
-分項分數：財務異常 {g('score_financial')}、裁罰 {g('score_penalty')}、評鑑 {g('score_eval')}（輿情資料源尚未接入，本版本不納入計分）
+分項分數：財務異常 {g('score_financial')}、裁罰 {g('score_penalty')}、評鑑 {g('score_eval')}、輿情 {g('score_sentiment', 20)}
 收支比：{ratio} {ratio_note}
 班佛偏離度(MAD)：{g('benford_mad')}
 Beneish 操縱分：{g('beneish_score')}

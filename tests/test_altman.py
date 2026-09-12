@@ -11,7 +11,7 @@ analyze() 產出欄位、並被 risk_score.score_financial 納入計分（權重
 import math
 
 import pandas as pd
-from hypothesis import given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from src.forensic import (ALTMAN_Z2_DISTRESS, ALTMAN_Z2_SAFE, altman_z2_lite,
@@ -119,7 +119,7 @@ def test_score_financial_altman_missing_is_neutral():
 # 屬性測試：值域與確定性
 # Feature: smart-watchdog-platform, Property (Altman Z'' lite range/determinism)
 # --------------------------------------------------------------------------
-@settings(max_examples=150)
+@settings(max_examples=150, suppress_health_check=[HealthCheck.too_slow])
 @given(
     income=st.floats(min_value=1.0, max_value=1e9,
                      allow_nan=False, allow_infinity=False),

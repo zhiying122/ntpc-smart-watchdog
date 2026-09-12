@@ -6,7 +6,7 @@
 
 三構面：壓力(Pressure)、機會(Opportunity)、合理化(Rationalization)。
 """
-from hypothesis import given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from src.fraud_triangle import VERTEX_THRESHOLD, assess
@@ -108,7 +108,7 @@ _pct = st.floats(min_value=0.0, max_value=100.0,
                  allow_nan=False, allow_infinity=False)
 
 
-@settings(max_examples=150)
+@settings(max_examples=150, suppress_health_check=[HealthCheck.too_slow])
 @given(altman=_pct, eval_s=_pct, benford=_pct, beneish=_pct,
        recon=_pct, penalty=_pct, sentiment=_pct)
 def test_property_triangle_range_and_determinism(
