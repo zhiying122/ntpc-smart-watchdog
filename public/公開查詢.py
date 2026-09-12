@@ -1243,34 +1243,15 @@ def render_disclosure(row: dict):
         "全國教保資訊網公開裁罰紀錄（經 g0v 開源專案整理備份）", _authority,
         "https://ap.ece.moe.edu.tw/webecems/punishSearch.aspx", TODAY)
     if _details:
-        # 一人多園提醒（資料正確性 / 責任 AI）：負責人若同時經營多間園，裁罰以
-        # 姓名比對無法區分屬哪一間，明細可能涵蓋其名下其他園，不全屬本園。
-        try:
-            _owner_fac = int(row.get("owner_facility_count") or 0)
-        except (TypeError, ValueError):
-            _owner_fac = 0
-        _multi = _owner_fac > 1
-        if _multi:
-            lines = [f"負責人名下近年公開裁罰 {len(_details)} 筆（依負責人姓名比對）："]
-        else:
-            lines = [f"近年公開裁罰 {len(_details)} 筆（依負責人比對）："]
-        for d in _details[:5]:
-            _date = d.get("date", "")
-            _pun = str(d.get("punishment", "")).strip()
-            lines.append(f"・{_date}　{_pun}")
-        if len(_details) > 5:
-            lines.append(f"…等共 {len(_details)} 筆")
-        if _multi:
-            lines.append(
-                f"※ 本園負責人名下另有其他園（共 {_owner_fac} 間），上列裁罰係依"
-                "負責人姓名比對之公開紀錄，可能涵蓋其名下其他園，非必然全屬本園；"
-                "請以主管機關對本園之公告為準。")
-        # 溯源提示（B1）：資料為公開裁罰紀錄之整合備份，官方查詢頁為表單首頁、
-        # 無法直達單筆，故明確引導家長以園名／負責人自行查詢核對。
-        lines.append(
-            "本平台裁罰資料整合自「全國教保資訊網」公開裁罰紀錄；如需核對，"
-            "請於官方裁罰查詢頁以「園所名稱」或「負責人姓名」查詢。")
-        row["public_penalty"] = lines
+        # 責任 AI（方案 A）：家長端不逐筆列出日期／罰鍰等處分細節。
+        # 原因：裁罰以「負責人姓名」比對而來，官方查詢介面的查詢維度不同，
+        # 家長未必能自行逐筆核對；為避免呈現無法回溯的指控性細節，改採中性
+        # 陳述並導向主管機關查證。逐筆明細僅保留於公務後台（含信心分級）。
+        row["public_penalty"] = [
+            "依公開裁罰紀錄，本園負責人名下曾有裁罰紀錄。此係依負責人姓名比對之"
+            "公開資料，未必全屬本園、亦非違法認定；實際裁罰以主管機關公告為準，"
+            "詳情請至「全國教保資訊網」裁罰查詢，或逕洽新北市政府教育局查證。"
+        ]
     elif _penalty_flag == "有":
         # 中間狀態：官方登載有裁罰，但本平台以負責人姓名比對尚未取得逐筆明細
         # （可能負責人異動或紀錄歸於不同對象）。誠實標示，不誤判為乾淨。
