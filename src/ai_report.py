@@ -307,6 +307,28 @@ def _safe_fallback(row):
     return text
 
 
+def _has_aws_credentials():
+    """偵測是否有可用的 AWS 憑證（供 generate_report 決定是否嘗試 Bedrock）。
+
+    同時支援兩種來源：
+      1. 環境變數金鑰（本機開發：.env 的 AWS_ACCESS_KEY_ID）。
+      2. IAM Role / instance profile（EC2 部署：憑證由 instance metadata
+         自動提供，環境變數中不會有 AWS_ACCESS_KEY_ID）。
+
+    以 botocore 的憑證鏈實際解析為準；解析不到才視為無憑證。任何例外皆保守
+    回傳 False，交由 generate_report 走 fallback（維持 R15.5 保底）。
+    """
+    # 快速路徑：環境變數已有金鑰。
+    if os.environ.get("AWS_ACCESS_KEY_ID"):
+        return True
+    try:
+        import boto3
+        session = boto3.Session()
+        return session.get_credentials() is not None
+    except Exception:
+        return False
+
+
 def generate_report(row, prefer_bedrock=True):
     """
     對外主函式。回傳 (report_text, source)。
@@ -315,8 +337,10 @@ def generate_report(row, prefer_bedrock=True):
     保底保證（R15.5, Property 43）：只要 Bedrock 未設定或呼叫失敗（金鑰缺失、
     網路、權限、模型未開通、模型回傳錯誤等任何例外），本函式一律退化為規則式
     fallback，回傳「非空」報告文字並標示來源為 "fallback"，維持可 Demo。
+
+    憑證偵測同時支援環境變數金鑰（本機）與 IAM Role（EC2 部署）。
     """
-    if prefer_bedrock and os.environ.get("AWS_ACCESS_KEY_ID"):
+    if prefer_bedrock and _has_aws_credentials():
         try:
             text = generate_with_bedrock(row)
             if isinstance(text, str) and text.strip():
