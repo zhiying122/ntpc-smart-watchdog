@@ -740,6 +740,7 @@ if do_search and address.strip():
             "lat": res["lat"], "lng": res["lng"], "label": res["display_name"],
             "notice": res.get("notice", "")}
         st.session_state["selected_park_id"] = None
+        st.session_state["list_page"] = 1  # 重新定位＝新查詢，清單回到第 1 頁
         # 誠實揭露實際定位到的地點，請家長自行確認（避免同名地點或門牌查無時的誤定位）。
         _loc = str(res.get("display_name") or "").strip()
         if _loc:
@@ -1064,13 +1065,27 @@ with right:
         if not markers:
             st.info("這個範圍內沒有符合條件的機構，試著放大搜尋範圍或調整篩選。")
         else:
+            # ---- 清單分頁（上一頁／下一頁）----
+            # 機構數可能達數百，改用分頁而非固定截斷 80 筆，確保「上方總數＝可翻閱
+            # 到的全部機構」，數字一致、家長也能逐頁看完。
+            PAGE_SIZE = 20
+            _total = len(markers)
+            _pages = max(1, (_total + PAGE_SIZE - 1) // PAGE_SIZE)
+            # 頁碼存於 session；篩選變動使總頁數變少時，夾回合法範圍避免停在空頁。
+            _page = int(st.session_state.get("list_page", 1))
+            _page = max(1, min(_page, _pages))
+            st.session_state["list_page"] = _page
+            _start = (_page - 1) * PAGE_SIZE
+            _end = min(_start + PAGE_SIZE, _total)
+            _page_markers = markers[_start:_end]
+
             # 對齊左欄底部：左欄＝地圖(460)＋圖例說明區(≈96含間距)；
             # 右欄＝標題區(60)＋清單容器。將容器高度提高到 540，使右欄底部
             # 往下延伸至與左欄「地圖標記說明」文字底部齊平。
             list_box = st.container(height=520)
             with list_box:
                 _selected_pid = str(st.session_state.get("selected_park_id") or "")
-                for m in markers[:80]:
+                for m in _page_markers:
                     # 圓點＝識別色（與地圖標記一致）；狀態文字＝加深的 -text 版
                     # （確保白/淺底可讀，達 WCAG AA）。icon/text 色分離。
                     _dot_color = _penalty_color(m.park_id)
@@ -1109,6 +1124,26 @@ with right:
                         if st.button("查看公開資訊　›", key=f"pick_{m.park_id}",
                                      use_container_width=True):
                             st.session_state["selected_park_id"] = m.park_id
+
+            # ---- 分頁控制列（上一頁／頁碼／下一頁）----
+            _pg_prev, _pg_info, _pg_next = st.columns([1, 1.4, 1])
+            with _pg_prev:
+                if st.button("‹ 上一頁", key="list_prev", use_container_width=True,
+                             disabled=(_page <= 1)):
+                    st.session_state["list_page"] = _page - 1
+                    st.rerun()
+            with _pg_info:
+                st.markdown(
+                    f"<div style='text-align:center;font-size:.82rem;"
+                    f"color:var(--ink-dim);padding-top:8px'>"
+                    f"第 {_page} / {_pages} 頁　·　顯示 {_start + 1}–{_end} 間"
+                    f"（共 {_total} 間）</div>",
+                    unsafe_allow_html=True)
+            with _pg_next:
+                if st.button("下一頁 ›", key="list_next", use_container_width=True,
+                             disabled=(_page >= _pages)):
+                    st.session_state["list_page"] = _page + 1
+                    st.rerun()
 
 
 # ===========================================================================
