@@ -135,7 +135,23 @@ def match_penalties(penalties: Iterable, institutions: Iterable) -> list[Penalty
     by_name, by_owner = _index_institutions(institutions)
     results: list[PenaltyMatch] = []
 
+    # 去重（資料正確性 / 責任 AI）：來源裁罰資料常含重複紀錄（相同 record_id，
+    # 或 id 缺漏時以 對象+日期+法條+處分 判定重複）。若不去重，同一裁罰會被
+    # 重複計入機構的 confirmed_count，虛增風險分。這裡在比對前先去重。
+    _deduped = []
+    _seen_pen: set = set()
     for pen in penalties:
+        _rid = _attr(pen, "record_id").strip()
+        _key = _rid or "|".join([
+            _attr(pen, "subject"), _attr(pen, "date"),
+            _attr(pen, "law"), _attr(pen, "punishment"),
+        ])
+        if _key in _seen_pen:
+            continue
+        _seen_pen.add(_key)
+        _deduped.append(pen)
+
+    for pen in _deduped:
         subject = _attr(pen, "subject")
         nsubject = normalize_name(subject)
         if not nsubject:

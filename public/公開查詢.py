@@ -647,9 +647,8 @@ st.markdown(
         資料更新：<b>{html.escape(data_updated_at())}</b>
       </div>
     </div>
-    <div class="lead">輸入您家的地址，就能看到附近有哪些教保機構、離您多遠，以及每一間的
-    公開紀錄。所有資訊都標註了來源與更新時間；網路討論觀測是「討論的變化」而非對機構的評價，
-    最終仍建議您實地參訪並向園所查證。</div>
+    <div class="lead">輸入地址，查看附近教保機構、距離與公開紀錄。資料均標註來源與時間，
+    建議實地參訪查證。</div>
     """,
     unsafe_allow_html=True,
 )
@@ -672,7 +671,7 @@ sentiment_data = load_sentiment()
 # 資料更新狀態列（誠實揭露：即時同步 vs 離線備援 + 自動更新機制）。
 # 有 GitHub Actions 每日自動更新 data/snapshots（版控），即時抓網失敗時退回。
 _is_live = bool(_pubdata.get("is_live"))
-_status_label = "即時同步" if _is_live else "自動更新備援"
+_status_label = "已同步最新" if _is_live else "自動更新備援"
 _status_color = "var(--safe-text)" if _is_live else "var(--sage-ink)"
 _note_txt = f"　·　{_pubdata['note']}" if _pubdata.get("note") else ""
 st.markdown(
@@ -1244,13 +1243,28 @@ def render_disclosure(row: dict):
         "全國教保資訊網．裁罰查詢", _authority,
         "https://ap.ece.moe.edu.tw/webecems/punishSearch.aspx", TODAY)
     if _details:
-        lines = [f"近年公開裁罰 {len(_details)} 筆（依負責人比對）："]
+        # 一人多園提醒（資料正確性 / 責任 AI）：負責人若同時經營多間園，裁罰以
+        # 姓名比對無法區分屬哪一間，明細可能涵蓋其名下其他園，不全屬本園。
+        try:
+            _owner_fac = int(row.get("owner_facility_count") or 0)
+        except (TypeError, ValueError):
+            _owner_fac = 0
+        _multi = _owner_fac > 1
+        if _multi:
+            lines = [f"負責人名下近年公開裁罰 {len(_details)} 筆（依負責人姓名比對）："]
+        else:
+            lines = [f"近年公開裁罰 {len(_details)} 筆（依負責人比對）："]
         for d in _details[:5]:
             _date = d.get("date", "")
             _pun = str(d.get("punishment", "")).strip()
             lines.append(f"・{_date}　{_pun}")
         if len(_details) > 5:
             lines.append(f"…等共 {len(_details)} 筆")
+        if _multi:
+            lines.append(
+                f"※ 本園負責人名下另有其他園（共 {_owner_fac} 間），上列裁罰係依"
+                "負責人姓名比對之公開紀錄，可能涵蓋其名下其他園，非必然全屬本園；"
+                "請以主管機關對本園之公告為準。")
         row["public_penalty"] = lines
     elif _penalty_flag == "有":
         # 中間狀態：官方登載有裁罰，但本平台以負責人姓名比對尚未取得逐筆明細

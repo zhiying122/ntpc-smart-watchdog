@@ -64,17 +64,30 @@ def _penalty_records_by_owner(penalties: list) -> dict[str, list]:
 
     值為 [{date, punishment, law, subject_type}, ...]，不含 dataclass 物件，
     確保能被 st.cache_data 序列化保存。
+
+    去重（資料正確性）：同一受處分對象名下，來源資料可能出現重複的裁罰紀錄
+    （相同 record_id，或 id 缺漏時以 date+law+punishment 判定），一律只保留一筆，
+    避免家長看到被灌水的裁罰筆數。
     """
     idx: dict[str, list] = {}
+    seen: dict[str, set] = {}
     for p in penalties:
         name = (p.subject or "").strip()
-        if name:
-            idx.setdefault(name, []).append({
-                "date": p.date,
-                "punishment": p.punishment,
-                "law": p.law,
-                "subject_type": p.subject_type,
-            })
+        if not name:
+            continue
+        # 去重鍵：優先 record_id；缺漏時以 date+law+punishment 組合。
+        rid = (p.record_id or "").strip()
+        key = rid or f"{p.date}|{p.law}|{p.punishment}"
+        seen_keys = seen.setdefault(name, set())
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        idx.setdefault(name, []).append({
+            "date": p.date,
+            "punishment": p.punishment,
+            "law": p.law,
+            "subject_type": p.subject_type,
+        })
     return idx
 
 
@@ -128,6 +141,14 @@ def load_public_dataset(city: str = "新北市", timeout: int = 30,
             "is_quasi_public": is_quasi_public,
             "quasi_public_period": pre_pub if is_quasi_public else "",
         })
+
+    # 同名負責人風險（資料正確性 / 責任 AI）：一位負責人常同時經營多間園，
+    # 以姓名比對裁罰時無法區分是哪一間園被罰。計算每位 owner 名下的（有效）
+    # 機構數，供呈現層對「一人多園」的裁罰明細加註提醒，不誇大單園裁罰。
+    from collections import Counter as _Counter
+    _owner_fac = _Counter(r["owner"] for r in rows if r.get("owner"))
+    for r in rows:
+        r["owner_facility_count"] = int(_owner_fac.get(r.get("owner"), 0))
 
     df = pd.DataFrame(rows)
     # 過濾無座標者（地圖與距離計算需要）。
