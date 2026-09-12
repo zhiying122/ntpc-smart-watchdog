@@ -344,6 +344,11 @@ st.markdown(
     .warm-card { background:var(--surface); border:1px solid var(--border);
       border-radius:var(--radius); padding:20px 22px; margin:12px 0;
       box-shadow:var(--shadow-sm); }
+
+    /* 篩選卡片：用 st.container(key="filter_card") 當真正的卡片框 */
+    .st-key-filter_card { background:var(--surface); border:1px solid var(--border);
+      border-radius:var(--radius); padding:18px 20px; margin:12px 0;
+      box-shadow:var(--shadow-sm); }
     .warm-note { background:var(--sage-tint); border:1px solid var(--border-soft);
       border-left:3px solid var(--sage); border-radius:var(--radius-sm);
       padding:13px 17px; color:#42513F; font-size:.86rem; line-height:1.8; }
@@ -514,14 +519,32 @@ st.markdown(
        不做裝飾性 hover 上浮；hover/選中只做「對應高亮」— 這個動態有實際
        功能意義（對照清單↔地圖），值得做，其餘動效拿掉。 */
     .inst-card { display:flex; align-items:stretch; gap:14px; background:var(--surface);
-      border:1px solid var(--border); border-left:4px solid var(--dot,#AEB4BC);
-      border-radius:var(--radius-sm); padding:13px 15px; margin-bottom:9px;
-      transition:background .16s var(--ease), border-color .16s var(--ease),
-                 box-shadow .16s var(--ease); }
-    .inst-card:hover { background:var(--bg-soft); border-color:#D8D2C4; }
-    /* 選中／對應高亮：左界主色加粗、底色微變、主色細外框 */
+      border:1px solid var(--border); border-bottom:none;
+      border-left:4px solid var(--dot,#AEB4BC);
+      border-radius:var(--radius-sm) var(--radius-sm) 0 0; padding:13px 15px;
+      transition:background .16s var(--ease), border-color .16s var(--ease); }
+
+    /* 每組「卡片＋底部按鈕」黏成一張完整卡片（st-key-instcard_*） */
+    [class*="st-key-instcard_"] { margin-bottom:10px; }
+    /* 消除 container 內卡片與按鈕之間的預設間距，讓兩者無縫貼合 */
+    [class*="st-key-instcard_"] [data-testid="stVerticalBlock"] { gap:0 !important; }
+    /* 底部行動按鈕：接在卡片下方，上緣直角、與卡片共用左側色條與外框 */
+    [class*="st-key-instcard_"] .stButton > button {
+      border:1px solid var(--border) !important; border-top:none !important;
+      border-left:4px solid var(--border) !important;
+      border-radius:0 0 var(--radius-sm) var(--radius-sm) !important;
+      background:var(--bg-soft) !important; color:var(--ink-dim) !important;
+      font-size:.82rem !important; font-weight:600 !important;
+      padding:8px 15px !important; justify-content:space-between !important; }
+    [class*="st-key-instcard_"] .stButton > button:hover {
+      background:var(--sage-tint) !important; color:var(--sage-ink) !important;
+      border-color:var(--sage) !important; border-left-color:var(--sage) !important; }
+    /* hover 整組卡片時，卡片本體與按鈕一起反應（視覺整體感） */
+    [class*="st-key-instcard_"]:hover .inst-card { background:var(--bg-soft);
+      border-color:#D8D2C4; }
+    /* 選中／對應高亮：整組（卡片＋按鈕）一起高亮，左界主色加粗 */
     .inst-card.is-active { background:var(--sage-tint);
-      box-shadow:inset 3px 0 0 var(--sage), 0 0 0 1px rgba(94,139,126,.35); }
+      box-shadow:inset 3px 0 0 var(--sage); border-color:rgba(94,139,126,.45); }
 
     /* 距離錨點：等寬大數字，掃視比較用 */
     .inst-dist { flex:0 0 auto; width:66px; display:flex; flex-direction:column;
@@ -643,38 +666,40 @@ st.session_state.setdefault("home", None)  # dict(lat,lng,label)
 # ===========================================================================
 # 篩選列（地址 + 距離 + 公私立 + 類型）
 # ===========================================================================
-st.markdown("<div class='warm-card'>", unsafe_allow_html=True)
+# 篩選卡片：用 st.container（key→st-key-filter_card class）當真正的卡片容器，
+# 由 CSS 畫框；不再用「未閉合 <div>」手法（那在新版 Streamlit 會被自動補上
+# 閉合標籤，變成一張空白卡片，即先前畫面上那條無意義白條）。
+with st.container(key="filter_card"):
+    c1, c2 = st.columns([2.4, 1])
+    with c1:
+        address = st.text_input(
+            "輸入您家的地址（或附近地標）",
+            placeholder="例如：新北市板橋區文化路一段",
+            help="使用 OpenStreetMap 免費定位服務，不會儲存您的地址。",
+        )
+    with c2:
+        radius_km = st.select_slider(
+            "搜尋範圍",
+            options=[0.5, 1.0, 2.0, 5.0],
+            value=2.0,
+            format_func=lambda v: geo.format_distance(v),
+        )
 
-c1, c2 = st.columns([2.4, 1])
-with c1:
-    address = st.text_input(
-        "輸入您家的地址（或附近地標）",
-        placeholder="例如：新北市板橋區文化路一段",
-        help="使用 OpenStreetMap 免費定位服務，不會儲存您的地址。",
-    )
-with c2:
-    radius_km = st.select_slider(
-        "搜尋範圍",
-        options=[0.5, 1.0, 2.0, 5.0],
-        value=2.0,
-        format_func=lambda v: geo.format_distance(v),
-    )
-
-c3, c4, c5 = st.columns([1.6, 1.4, 1])
-with c3:
-    # 類別選項：公立/私立/非營利（park_type）＋準公共（is_quasi_public 旗標，
-    # 準公共園在 park_type 上仍屬私立，故獨立為一個可選類別，家長找平價名額用）。
-    OWNERSHIP_OPTIONS = ["公立", "私立", "非營利", "準公共"]
-    sel_own = st.pills("類別（可複選）", OWNERSHIP_OPTIONS, selection_mode="multi",
-                       default=OWNERSHIP_OPTIONS)
-with c4:
-    districts = sorted(df["district"].dropna().unique().tolist())
-    sel_dist = st.multiselect("行政區（可留空＝不限）", districts, default=[],
-                              placeholder="選擇行政區（可留空，不限）")
-with c5:
-    st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-    do_search = st.button("定位並搜尋", type="primary", use_container_width=True,
-                          key="search_btn")
+    c3, c4, c5 = st.columns([1.6, 1.4, 1])
+    with c3:
+        # 類別選項：公立/私立/非營利（park_type）＋準公共（is_quasi_public 旗標，
+        # 準公共園在 park_type 上仍屬私立，故獨立為一個可選類別，家長找平價名額用）。
+        OWNERSHIP_OPTIONS = ["公立", "私立", "非營利", "準公共"]
+        sel_own = st.pills("類別（可複選）", OWNERSHIP_OPTIONS, selection_mode="multi",
+                           default=OWNERSHIP_OPTIONS)
+    with c4:
+        districts = sorted(df["district"].dropna().unique().tolist())
+        sel_dist = st.multiselect("行政區（可留空＝不限）", districts, default=[],
+                                  placeholder="選擇行政區（可留空，不限）")
+    with c5:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        do_search = st.button("定位並搜尋", type="primary", use_container_width=True,
+                              key="search_btn")
 
 # 觸發定位
 if do_search and address.strip():
@@ -689,8 +714,6 @@ if do_search and address.strip():
     else:
         st.session_state["home"] = None
         st.warning(res["message"])
-
-st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ===========================================================================
@@ -805,7 +828,7 @@ with left:
         # 與右欄大數字焦點等高（96px），讓兩欄地圖／清單頂部對齊。
         _home_label = html.escape(str(home.get("label", "") or "")[:36]) if home else ""
         st.markdown(
-            "<div style='height:96px;box-sizing:border-box;display:flex;"
+            "<div style='min-height:96px;box-sizing:border-box;display:flex;"
             "flex-direction:column;justify-content:flex-end;padding-bottom:6px'>"
             "<div style='font-family:var(--font-serif);font-weight:700;"
             "font-size:1.15rem;color:var(--ink-strong)'>附近機構地圖</div>"
@@ -936,7 +959,7 @@ with right:
         # 大數字焦點：家長搜尋後最想知道「附近有幾間、我有多少選擇」，
         # 用真實數字當第一視覺焦點，比裝飾色塊誠實也更有說服力。
         st.markdown(
-            "<div style='height:96px;box-sizing:border-box'>"
+            "<div style='min-height:96px;box-sizing:border-box'>"
             "<div class='count-focus'>"
             f"<span class='count-num'>{len(markers)}</span>"
             f"<span class='count-cap'><b>間教保機構</b><br>"
@@ -977,24 +1000,26 @@ with right:
                         _dist_html = "<span class='dnone'>未定位<br>距離</span>"
                     _sel = str(m.park_id) == _selected_pid
                     _active_cls = " is-active" if _sel else ""
-                    # 卡片：距離大數字錨點 + 名稱 + 類別/區 + 裁罰狀態圓點。
-                    st.markdown(
-                        f"<div class='inst-card{_active_cls}' style='--dot:{_dot_color}'>"
-                        f"<div class='inst-dist'>{_dist_html}</div>"
-                        f"<div class='inst-body'>"
-                        f"<div class='inst-name'>{html.escape(m.name)}</div>"
-                        f"<div class='inst-meta'>{html.escape(m.ownership)}"
-                        f"・{html.escape(m.district)}</div>"
-                        f"<div class='inst-status' style='color:{_text_color};"
-                        f"--sdot-halo:{_halo}'>"
-                        f"<span class='sdot' style='background:{_dot_color}'></span>"
-                        f"{html.escape(_pstat)}</div>"
-                        f"</div></div>",
-                        unsafe_allow_html=True)
-                    # 保留原有選取邏輯：以明確的行動按鈕觸發詳情，不動 session 行為。
-                    if st.button("查看公開資訊　›", key=f"pick_{m.park_id}",
-                                 use_container_width=True):
-                        st.session_state["selected_park_id"] = m.park_id
+                    # 卡片與按鈕包在同一個 container（key→st-key- class），透過 CSS
+                    # 讓「卡片本體＋底部行動按鈕」黏成一張完整卡片（無縫），
+                    # 而非上下兩個分離的區塊。保留原有選取邏輯，不動 session 行為。
+                    with st.container(key=f"instcard_{m.park_id}"):
+                        st.markdown(
+                            f"<div class='inst-card{_active_cls}' style='--dot:{_dot_color}'>"
+                            f"<div class='inst-dist'>{_dist_html}</div>"
+                            f"<div class='inst-body'>"
+                            f"<div class='inst-name'>{html.escape(m.name)}</div>"
+                            f"<div class='inst-meta'>{html.escape(m.ownership)}"
+                            f"・{html.escape(m.district)}</div>"
+                            f"<div class='inst-status' style='color:{_text_color};"
+                            f"--sdot-halo:{_halo}'>"
+                            f"<span class='sdot' style='background:{_dot_color}'></span>"
+                            f"{html.escape(_pstat)}</div>"
+                            f"</div></div>",
+                            unsafe_allow_html=True)
+                        if st.button("查看公開資訊　›", key=f"pick_{m.park_id}",
+                                     use_container_width=True):
+                            st.session_state["selected_park_id"] = m.park_id
 
 
 # ===========================================================================
