@@ -26,6 +26,11 @@
 
 啟動：python -m streamlit run public/公開查詢.py --server.port 8602
 """
+# 型別註記延遲求值（PEP 563）：本檔用到 `pd.DataFrame | None` 等 PEP 604 語法，
+# 於 Python 3.9（EC2 部署環境）需此 import 才不會在 import 時報 TypeError。
+# 注意：from __future__ 必須是 docstring 之後的第一個語句，不得置於其他 import 之後。
+from __future__ import annotations
+
 import html
 import json
 import os

@@ -10,6 +10,10 @@
 所有方法都「可解釋」：每個指標都有清楚定義、門檻或可解釋輸出，能對評審講清楚。
 文獻佐證見 docs/methodology.md。
 """
+# 型別註記延遲求值：本檔用到 `X | None` 等 PEP 604 語法，於 Python 3.9
+# （EC2 部署環境）需此 import 才不會在 import 時因型別語法報錯。
+from __future__ import annotations
+
 import math
 
 import numpy as np

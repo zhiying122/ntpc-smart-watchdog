@@ -9,6 +9,10 @@
 
 輸出：data/processed/kindergartens.csv （交給組員做儀表板的契約檔）
 """
+# 型別註記延遲求值（PEP 563）：本檔與其相依用到 `X | None` 等 PEP 604 語法，
+# 於 Python 3.9（EC2 部署環境）需此 import 才不會在 import 時報 TypeError。
+from __future__ import annotations
+
 import os
 import pandas as pd
 
