@@ -294,3 +294,37 @@ def test_property_49_dual_profile_weights_range_determinism(fin, pen, ev, sen, p
 
     # 輿情分項貢獻 ≤ 15（R10.8, R26.7）
     assert rb1.contributions.get("sentiment", 0.0) <= 15.0 + 1e-9
+
+
+# ==========================================================================
+# 破窗效應接入裁罰分項（R25.7）
+# ==========================================================================
+import json as _json  # noqa: E402
+
+from src.risk_score import broken_window_penalty_score, score_penalty  # noqa: E402
+
+
+def test_penalty_falls_back_when_no_records():
+    """無逐筆明細 → score_penalty 退回既有嚴重度計分（向後相容，R25.7）。"""
+    row = {"penalty_count": 2, "penalty_reason": "超收幼生與收費違規"}
+    # 未帶 penalty_records → 走 penalty_severity_score
+    assert score_penalty(row) == score_penalty(
+        {"penalty_count": 2, "penalty_reason": "超收幼生與收費違規", "penalty_records": ""})
+
+
+def test_penalty_uses_broken_window_when_records_present():
+    """有逐筆明細（含日期）→ score_penalty 走破窗效應（R25.7）。"""
+    recs = _json.dumps([
+        {"date": "2024-02-15", "reason": "資料未依規公開"},
+        {"date": "2026-05-08", "reason": "照顧安全疑慮與設施缺失"},
+    ], ensure_ascii=False)
+    row = {"penalty_count": 2, "penalty_reason": "多筆", "penalty_records": recs}
+    bw = broken_window_penalty_score(recs)
+    assert bw is not None
+    assert score_penalty(row) == bw
+
+
+def test_broken_window_penalty_none_when_empty():
+    """無明細 → broken_window_penalty_score 回 None（讓呼叫端退回）。"""
+    assert broken_window_penalty_score("") is None
+    assert broken_window_penalty_score(None) is None

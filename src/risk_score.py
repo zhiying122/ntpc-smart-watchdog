@@ -12,6 +12,9 @@
 import os
 import pandas as pd
 
+from datetime import date
+
+from src.broken_window import broken_window_score, violations_from_records
 from src.forensic import analyze
 from src.models import RiskBreakdown
 from src.penalty_nlp import penalty_severity_score, classify_penalty_text
@@ -88,6 +91,22 @@ def score_financial(row):
     return round(min(score, 100), 1)
 
 
+def broken_window_penalty_score(penalty_records, as_of=None):
+    """由逐筆裁罰明細計算破窗效應裁罰分（R25.7）；無明細回 None。
+
+    penalty_records：逐筆裁罰明細（list[dict] 或 JSON 字串），每筆含 date/reason。
+      無明細（None/空）→ 回 None，讓呼叫端退回既有嚴重度計分（向後相容）。
+    as_of：評估基準日，預設今日。
+
+    回傳 0–100 的破窗分數（float），或 None（無逐筆明細）。
+    """
+    violations = violations_from_records(penalty_records)
+    if not violations:
+        return None
+    result = broken_window_score(violations, as_of or date.today())
+    return result.score
+
+
 def score_penalty(row):
     """
     裁罰分(0-100)：改用「裁罰性質分類 + 嚴重度」，而非純次數。
@@ -104,6 +123,14 @@ def score_penalty(row):
             not hasattr(row, "get")):
         # 純量介面：只有次數、無事由文字
         return penalty_severity_score(row, "")
+
+    # 破窗效應（R25.7）：若該園提供逐筆裁罰明細（含日期）→ 以 Broken_Window_Score
+    # 取代嚴重度計分，讓「頻繁、近期、未改善」的違規累積被正確突顯。
+    # 無逐筆明細（現行多數園僅有彙總 penalty_count/reason）→ 優雅退回既有嚴重度計分，
+    # 確保向後相容、不造假日期（架構可規模化：真實裁罰明細接入即自動生效）。
+    bw = broken_window_penalty_score(row.get("penalty_records"))
+    if bw is not None:
+        return bw
     return penalty_severity_score(row.get("penalty_count"), row.get("penalty_reason"))
 
 
@@ -469,6 +496,9 @@ def _merge_external(df):
         # 裁罰事由文字：供「事由分類 + 嚴重度」計分用（若來源含此欄）
         if "penalty_reason" in pen.columns:
             pen_cols.append("penalty_reason")
+        # 逐筆裁罰明細（JSON，含日期）：供破窗效應計分（R25.7）
+        if "penalty_records" in pen.columns:
+            pen_cols.append("penalty_records")
         df = df.merge(pen[pen_cols], on="park_name", how="left")
     # 座標
     geo_path = os.path.join(ROOT, "data", "processed", "geocoded.csv")
@@ -501,6 +531,11 @@ def build(df):
     if "penalty_reason" not in df.columns:
         df["penalty_reason"] = ""
     df["penalty_reason"] = df["penalty_reason"].fillna("")
+    # 逐筆裁罰明細（JSON，含日期）；有明細者 score_penalty 走破窗效應（R25.7），
+    # 無明細者退回嚴重度計分。多數園無明細 → 空字串（向後相容）。
+    if "penalty_records" not in df.columns:
+        df["penalty_records"] = ""
+    df["penalty_records"] = df["penalty_records"].fillna("")
     # 裁罰主類別（收費/人力/安全/教保/行政），供前端與派工重點使用
     df["penalty_category"] = df.apply(
         lambda r: classify_penalty_text(r.get("penalty_reason"))["primary"] or "", axis=1)
@@ -584,6 +619,7 @@ def main(src=None):
             "fund_balance_begin", "fund_balance_end",
             "fund_recon_score", "fund_recon_consistent", "fund_continuity_score",
             "penalty_count", "penalty_reason", "penalty_category", "eval_grade",
+            "penalty_records",
             "score_financial", "score_penalty", "score_eval",
             # 評分檔別（R26）：forensic（有財報）/ behavioral（無財報附幼），
             # 附加欄位不破壞既有載入契約。

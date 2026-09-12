@@ -43,6 +43,7 @@ if _ROOT not in sys.path:
 from src import ai_report  # noqa: E402
 from src import anomaly  # noqa: E402
 from src import audit  # noqa: E402
+from src import broken_window  # noqa: E402
 from src import evidence  # noqa: E402
 from src import peer  # noqa: E402
 from src import risk_score  # noqa: E402
@@ -1013,3 +1014,80 @@ def category_source_links(categories, reachability=None) -> list[SourceLink]:
         r = reach.get(getattr(cat, "category", None))
         links.append(source_link(getattr(cat, "source", None), reachable=r))
     return links
+
+
+# ==========================================================================
+# 破窗效應累犯軌跡（R25.6, R25.7）：供法規類別攤開「頻繁/近期/未改善」軌跡
+# ==========================================================================
+@dataclass
+class BrokenWindowTraceRow:
+    """破窗軌跡單筆違規的顯示列（R25.6）。"""
+    description: str
+    severity: str          # minor/moderate/major
+    severity_label: str    # 輕微/中度/重大
+    months_since: float
+    time_decay: float
+    contribution: float
+
+
+@dataclass
+class BrokenWindowTrace:
+    """機構破窗效應累犯軌跡（R25.6, R25.7）。
+
+    - has_detail：是否有逐筆裁罰明細（無則退回嚴重度計分，不顯示軌跡）。
+    - score：破窗分數（0–100）。
+    - frequency_amplifier：頻率放大係數。
+    - rows：逐筆貢獻明細（依時間由舊到新）。
+    """
+    has_detail: bool
+    score: float = 0.0
+    frequency_amplifier: float = 0.0
+    n_counted: int = 0
+    rows: list[BrokenWindowTraceRow] = field(default_factory=list)
+
+
+_BW_SEVERITY_LABEL = {"minor": "輕微", "moderate": "中度", "major": "重大"}
+
+
+def broken_window_trace(row) -> BrokenWindowTrace:
+    """組裝機構破窗效應累犯軌跡（R25.6, R25.7）。
+
+    若該機構有逐筆裁罰明細（penalty_records，含日期）→ 計算並回傳可攤開的
+    累積軌跡（每筆違規的嚴重度、距今月數、時效衰減、加權貢獻），對齊 Demo
+    「攤開破窗軌跡」。無逐筆明細 → has_detail=False（頁面改顯示現有嚴重度計分，
+    不造假軌跡）。
+
+    參數：
+      row：單一機構資料（dict 或 pandas.Series），含 penalty_records（可選）。
+
+    回傳：
+      BrokenWindowTrace。
+    """
+    from datetime import date
+
+    entity = _to_dict(row)
+    records = entity.get("penalty_records")
+    violations = broken_window.violations_from_records(records)
+    if not violations:
+        return BrokenWindowTrace(has_detail=False)
+
+    result = broken_window.broken_window_score(violations, date.today())
+    rows = [
+        BrokenWindowTraceRow(
+            description=d.description,
+            severity=d.severity,
+            severity_label=_BW_SEVERITY_LABEL.get(d.severity, d.severity),
+            months_since=d.months_since,
+            time_decay=d.time_decay,
+            contribution=d.contribution,
+        )
+        # 依時間由舊到新排序，呈現「累積惡化」軌跡。
+        for d in sorted(result.details, key=lambda x: x.months_since, reverse=True)
+    ]
+    return BrokenWindowTrace(
+        has_detail=True,
+        score=result.score,
+        frequency_amplifier=result.frequency_amplifier,
+        n_counted=result.n_counted,
+        rows=rows,
+    )

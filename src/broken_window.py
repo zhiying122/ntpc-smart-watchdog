@@ -91,6 +91,67 @@ class BrokenWindowResult:
     pending_manual: list[str] = field(default_factory=list)  # 缺類型/日期被排除者（R25.8）
 
 
+def violations_from_records(records) -> list[Violation]:
+    """由逐筆裁罰明細建立 Violation 清單（供接入 score_penalty）。
+
+    每筆 record 為 dict，可含：
+      - date / occurred_on：違規日期，字串 'YYYY-MM-DD' 或 date。
+      - reason / description：事由文字（用 penalty_nlp 分類推嚴重度）。
+      - severity：可選，顯式三級嚴重度。
+      - category：可選，penalty_nlp 五類。
+    缺日期或無法判定嚴重度者仍建立 Violation（由 broken_window_score 標 pending）。
+
+    records 可為 list[dict] 或 JSON 字串（"[{...}]"）；空/None → 空清單。
+    """
+    import json
+
+    if records is None or records == "":
+        return []
+    if isinstance(records, str):
+        try:
+            records = json.loads(records)
+        except (ValueError, TypeError):
+            return []
+    if not isinstance(records, list):
+        return []
+
+    out: list[Violation] = []
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        raw_date = rec.get("date") or rec.get("occurred_on")
+        occurred = _parse_date(raw_date)
+        reason = rec.get("reason") or rec.get("description") or ""
+        severity = rec.get("severity")
+        category = rec.get("category")
+        # 未給 severity/category 時，用 penalty_nlp 分類由事由文字推類別。
+        if severity is None and category is None and reason:
+            try:
+                from .penalty_nlp import classify_penalty_text
+                category = classify_penalty_text(reason).get("primary")
+            except Exception:  # noqa: BLE001
+                category = None
+        out.append(Violation(occurred_on=occurred, severity=severity,
+                             category=category, description=str(reason)))
+    return out
+
+
+def _parse_date(value):
+    """把字串/date 解析為 date；無法解析回 None。"""
+    if value is None or value == "":
+        return None
+    if isinstance(value, date):
+        return value
+    s = str(value).strip()
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d"):
+        try:
+            from datetime import datetime
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
 def _months_between(earlier: date, later: date) -> float:
     """回傳 later 相對 earlier 的月數（近似，以 30.44 天/月）。負值截為 0。"""
     days = (later - earlier).days

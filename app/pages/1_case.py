@@ -198,6 +198,32 @@ with tab_cat:
                 f"{src_line}</div>",
                 unsafe_allow_html=True,
             )
+            # 破窗效應累犯軌跡（R25.6, R25.7）：法規類別下，若有逐筆裁罰明細
+            # （含日期）則攤開「頻繁/近期/未改善」累積軌跡，凸顯破窗惡化趨勢。
+            if cat.category == "法規":
+                bw = inspector.broken_window_trace(row)
+                if bw.has_detail:
+                    rows_html = ""
+                    for r in bw.rows:
+                        sev_color = (common.RISK["high"][0] if r.severity == "major"
+                                     else common.RISK["medium"][0] if r.severity == "moderate"
+                                     else common.INK_2)
+                        rows_html += (
+                            f"<tr><td class='l'>{r.description}</td>"
+                            f"<td style='color:{sev_color};'>{r.severity_label}</td>"
+                            f"<td>{r.months_since:.0f} 月前</td>"
+                            f"<td>{r.time_decay:.2f}</td>"
+                            f"<td>{r.contribution:.2f}</td></tr>")
+                    st.markdown(
+                        f"<div class='sw-callout' style='margin-bottom:10px;'>"
+                        f"破窗效應累犯加權：<b>{bw.score:.1f}</b> 分"
+                        f"（{bw.n_counted} 筆違規，頻率放大 ×{bw.frequency_amplifier:.2f}）。"
+                        f"近期、頻繁、未改善的違規累積被指數式突顯，時效衰減使久遠違規權重降低。</div>"
+                        f"<table class='sw-table'><thead><tr><th class='l'>違規事由</th>"
+                        f"<th>嚴重度</th><th>距今</th><th>時效衰減</th><th>加權貢獻</th></tr></thead>"
+                        f"<tbody>{rows_html}</tbody></table>",
+                        unsafe_allow_html=True,
+                    )
         else:
             common.empty_state(f"{cat.category}：無資料",
                                "此分析類別目前無可用資料。", "clock")
