@@ -478,10 +478,13 @@ with left:
             color=pmap.COLOR_HOME, weight=1, fill=True, fill_opacity=0.05,
         ).add_to(fmap)
 
-    # 機構標記（柔和色 CircleMarker，避免警報紅）
+    # 機構標記：著色與右側清單一致＝公開裁罰狀態（綠=無裁罰、暖琥珀=有/經標記裁罰），
+    # 避免地圖全灰、且左右燈號語意同步。輿情關注度於點入機構後即時計算，不在地圖著色。
     for m in markers:
         if not m.has_coords:
             continue
+        _color = _penalty_color(m.park_id)
+        _pstat = _penalty_status_short(m.park_id)
         dist_txt = (f"　距離約 {geo.format_distance(m.distance_km)}"
                     if m.distance_km is not None else "")
         popup_html = (
@@ -490,15 +493,15 @@ with left:
             f"<span style='color:#6B6357'>{html.escape(m.ownership)}"
             f"　{html.escape(m.district)}{dist_txt}</span><br>"
             f"<span style='display:inline-block;margin-top:6px;padding:2px 8px;"
-            f"border-radius:8px;background:{m.color};color:#fff;font-size:12px'>"
-            f"近期關注度：{m.level_label}</span></div>"
+            f"border-radius:8px;background:{_color};color:#fff;font-size:12px'>"
+            f"{html.escape(_pstat)}</span></div>"
         )
         folium.CircleMarker(
             location=[m.lat, m.lng],
             radius=9,
             color="#ffffff", weight=2,
-            fill=True, fill_color=m.color, fill_opacity=0.9,
-            tooltip=f"{m.name}（{m.level_label}）",
+            fill=True, fill_color=_color, fill_opacity=0.9,
+            tooltip=f"{m.name}（{_pstat}）",
             popup=folium.Popup(popup_html, max_width=260),
         ).add_to(fmap)
 
@@ -514,21 +517,27 @@ with left:
             "您也可以先用「公私立別」與「行政區」縮小範圍。</div>",
             unsafe_allow_html=True)
     else:
-        # 搜尋後顯示關注度圖例＋說明，合併為固定高度區塊（80px），
-        # 讓左欄底部高度穩定＝地圖460＋圖例區80＝540，與右欄清單容器精準對齊。
+        # 搜尋後顯示圖例＋說明，合併為固定高度區塊（80px），左欄底＝地圖460＋80＝540。
+        # 圖例語意＝地圖標記色（與右側清單一致的「公開裁罰狀態」），非輿情關注度。
+        _legend = [
+            ("#5B9E7A", "無裁罰紀錄"),
+            ("#D99A4E", "有／經標記裁罰"),
+            (pmap.COLOR_HOME, "您輸入的位置"),
+        ]
         legend_items_html = ""
-        for it in pmap.legend_items(include_home=True):
+        for color, label in _legend:
             legend_items_html += (
                 f"<span style='display:inline-flex;align-items:center;gap:6px;"
                 f"font-size:.8rem;color:#5C6670'>"
                 f"<span style='width:12px;height:12px;border-radius:50%;"
-                f"background:{it.color};border:2px solid #fff;"
-                f"box-shadow:0 0 0 1px #E4DED3'></span>{html.escape(it.label)}</span>")
+                f"background:{color};border:2px solid #fff;"
+                f"box-shadow:0 0 0 1px #E4DED3'></span>{html.escape(label)}</span>")
         st.markdown(
             "<div style='height:80px;box-sizing:border-box;padding-top:8px;overflow:hidden'>"
             f"<div style='display:flex;flex-wrap:wrap;gap:14px'>{legend_items_html}</div>"
             "<div style='font-size:.76rem;color:#8A8073;margin-top:6px'>"
-            "地圖標記為概略關注度；輿情指數於點入機構時即時計算，清單先以裁罰狀態呈現。</div>"
+            "地圖標記顏色為公開裁罰狀態（與右側清單一致）；每間機構的輿情關注指數"
+            "與新聞時間軸，會在您點入該機構時即時蒐集公開新聞後計算。</div>"
             "</div>",
             unsafe_allow_html=True)
 
@@ -569,9 +578,9 @@ with right:
         if not markers:
             st.info("這個範圍內沒有符合條件的機構，試著放大搜尋範圍或調整篩選。")
         else:
-            # 精準對齊：左欄底＝地圖460＋圖例區80＝540；右欄＝標題區60＋容器。
-            # 故容器＝540−60＝480，使左右兩欄底部齊平。
-            list_box = st.container(height=480)
+            # 對齊左欄底部（地圖460＋圖例說明區）：右欄＝標題區＋容器。
+            # 容器高度經實測微調，使右欄底部齊平於左欄「地圖標記說明」文字底部。
+            list_box = st.container(height=520)
             with list_box:
                 for m in markers[:80]:
                     dist_txt = (f"・{geo.format_distance(m.distance_km)}"
