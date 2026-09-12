@@ -1299,6 +1299,67 @@ def require_data():
 # ===========================================================================
 # 主動預警面板（Proactive Alert）— 事前主動示警
 # ===========================================================================
+@st.cache_data(show_spinner=False, ttl=600)
+def live_dataset_cached(city="新北市", timeout=25):
+    """帶 10 分鐘 TTL 快取的動態資料串接（供「進頁自動抓」使用）。
+
+    以 @st.cache_data 包住 src.live_source.load_live_dataset：
+      - 同一 session 內 10 分鐘只實際連外抓一次 → 進頁自動顯示即時數字、
+        又不會每次 rerun 都重抓拖慢畫面。
+      - load_live_dataset 本身已含離線備援（抓失敗退回本地快取，不崩）。
+    回傳 (summary_dict | None)。summary 結構與整合中心原本 session 版一致。
+    """
+    try:
+        from src import live_source as _ls
+        from src import penalty_match as _pm
+    except Exception:
+        return None
+    try:
+        ds = _ls.load_live_dataset(city=city, timeout=timeout)
+    except Exception:  # noqa: BLE001 - 抓取任何錯誤都不得中斷頁面
+        return None
+    if ds is None or not (ds.institutions or ds.penalties):
+        return None
+    try:
+        matches = _pm.match_penalties(ds.penalties, ds.institutions)
+        summaries = _pm.summarize_by_institution(matches)
+        n_high = sum(1 for m in matches if m.confidence == _pm.HIGH)
+        top = sorted(summaries.values(), key=lambda s: s.confirmed_count,
+                     reverse=True)[:8]
+    except Exception:  # noqa: BLE001
+        matches, summaries, n_high, top = [], {}, 0, []
+    return {
+        "inst": len(ds.institutions),
+        "pen": len(ds.penalties),
+        "is_live": ds.is_live,
+        "inst_at": ds.institutions_status.fetched_at,
+        "pen_at": ds.penalties_status.fetched_at,
+        "inst_fallback": ds.institutions_status.used_fallback,
+        "pen_fallback": ds.penalties_status.used_fallback,
+        "inst_err": ds.institutions_status.error,
+        "pen_err": ds.penalties_status.error,
+        "sample_inst": [
+            {"機構名稱": i.park_name, "行政區": i.district,
+             "核定人數": i.count_approved, "月費": i.monthly}
+            for i in ds.institutions[:8]
+        ],
+        "sample_pen": [
+            {"受處分對象別": p.subject_type, "對象": p.subject,
+             "日期": p.date, "處分": p.punishment}
+            for p in ds.penalties[:8]
+        ],
+        "match_total": len(matches),
+        "match_high": n_high,
+        "match_pending": len(matches) - n_high,
+        "match_institutions": len(summaries),
+        "match_top": [
+            {"機構名稱": s.park_name, "確認裁罰數（高信心）": s.confirmed_count,
+             "待人工確認": s.pending_count}
+            for s in top if s.confirmed_count > 0
+        ],
+    }
+
+
 def _load_alert_module():
     """載入 src.alert（純邏輯預警層）。相容從專案根或測試載入。"""
     try:

@@ -53,65 +53,22 @@ st.markdown(
 
 colb1, colb2 = st.columns([1, 3])
 with colb1:
-    do_sync = st.button("同步最新資料", type="primary", use_container_width=True)
+    do_refresh = st.button("重新整理資料", type="primary", use_container_width=True,
+                           help="強制清除快取並重新即時串接官方開放資料源")
 with colb2:
     st.caption(
-        "資料來源：全國教保資訊網（教育部），經 g0v 開源專案（江明宗 kiang）"
-        "整理備份。屬二手整理資料，非官方保證正確性之來源；正式部署應改接"
-        "官方 API（見資料介接與備援計畫書）。")
+        "本頁進入時即自動串接官方開放資料源（10 分鐘內以快取加速，可按左側"
+        "強制重新整理）。資料來源：全國教保資訊網（教育部），經 g0v 開源專案"
+        "（江明宗 kiang）整理備份；屬二手整理資料，正式部署應改接官方 API。")
 
-if do_sync:
-    with st.spinner("正在串接官方開放資料源…"):
-        try:
-            ds = ls.load_live_dataset(city="新北市", timeout=30)
-        except Exception as exc:  # 韌性：任何非預期錯誤都不得讓頁面崩潰
-            ds = None
-            st.error(f"資料同步發生非預期錯誤：{exc}")
-
-    if ds is not None and (ds.institutions or ds.penalties):
-        # 裁罰-機構實體比對（信心分級；僅 HIGH 建議計入，責任 AI）。
-        matches = pm.match_penalties(ds.penalties, ds.institutions)
-        match_summaries = pm.summarize_by_institution(matches)
-        n_high = sum(1 for m in matches if m.confidence == pm.HIGH)
-        n_pending = len(matches) - n_high
-        top_confirmed = sorted(
-            match_summaries.values(),
-            key=lambda s: s.confirmed_count, reverse=True)[:8]
-
-        st.session_state["live_ds_summary"] = {
-            "inst": len(ds.institutions),
-            "pen": len(ds.penalties),
-            "is_live": ds.is_live,
-            "inst_at": ds.institutions_status.fetched_at,
-            "pen_at": ds.penalties_status.fetched_at,
-            "inst_fallback": ds.institutions_status.used_fallback,
-            "pen_fallback": ds.penalties_status.used_fallback,
-            "inst_err": ds.institutions_status.error,
-            "pen_err": ds.penalties_status.error,
-            "sample_inst": [
-                {"機構名稱": i.park_name, "行政區": i.district,
-                 "核定人數": i.count_approved, "月費": i.monthly}
-                for i in ds.institutions[:8]
-            ],
-            "sample_pen": [
-                {"受處分對象別": p.subject_type, "對象": p.subject,
-                 "日期": p.date, "處分": p.punishment}
-                for p in ds.penalties[:8]
-            ],
-            "match_total": len(matches),
-            "match_high": n_high,
-            "match_pending": n_pending,
-            "match_institutions": len(match_summaries),
-            "match_top": [
-                {"機構名稱": s.park_name, "確認裁罰數（高信心）": s.confirmed_count,
-                 "待人工確認": s.pending_count}
-                for s in top_confirmed if s.confirmed_count > 0
-            ],
-        }
-    elif ds is not None:
-        st.warning("已嘗試同步，但未取得任何資料（來源異常且無可用快取）。")
-
-summary = st.session_state.get("live_ds_summary")
+# 進頁即自動串接（不需按鈕）：以 10 分鐘 TTL 快取加速，抓取含離線備援。
+# 按「重新整理資料」則清快取強制重抓最新。
+if do_refresh:
+    common.live_dataset_cached.clear()
+with st.spinner("正在串接官方開放資料源…"):
+    summary = common.live_dataset_cached(city="新北市", timeout=25)
+if summary is None:
+    st.warning("目前無法取得動態資料（來源異常且無可用快取）；系統其餘功能不受影響。")
 if summary:
     mode = "即時串接" if summary["is_live"] else "離線快取備援"
     common.kpi_band([
