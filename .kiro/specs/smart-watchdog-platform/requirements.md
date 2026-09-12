@@ -243,6 +243,8 @@
 9. THE NLP_Engine SHALL 使用 AWS Bedrock 基礎模型執行輿情文本的訊號偵測與情緒分析；WHERE AWS Bedrock 不可用，THE NLP_Engine SHALL 退化為規則式關鍵字比對以維持可 Demo。
 10. WHERE 輿情資料以抽樣示範資料集提供，THE NLP_Engine SHALL 於輸出中明確標示該結果為抽樣示範，並聲明架構可規模化至完整資料來源。
 11. IF 一則輿情文本未命中任何預先定義的微弱訊號類別，THEN THE NLP_Engine SHALL 將其標記為「無明顯訊號」而不產生任何風險訊號。
+12. THE NLP_Engine SHALL 以官方公開資料（裁罰紀錄與評鑑結果）作為機構關注信號的優先來源，將每一筆裁罰事由依 Risk_Taxonomy 歸類並標記嚴重度（輕微／中度／重大），且為每一筆官方信號附其官方資料來源標示供證據鏈追溯。
+13. WHEN 呈現官方公開信號，THE NLP_Engine SHALL 僅陳述官方已公開之事實，不作違法、舞弊或不合格之認定。
 
 ---
 
@@ -341,6 +343,7 @@
 2. THE Data_Source_Matrix SHALL 僅列入實際存在或已確認的資料集。
 3. WHERE 一個資料源的可用性尚未確認，THE Data_Source_Matrix SHALL 誠實標示為「未確認」而不宣稱可用。
 4. THE Data_Source_Matrix SHALL 避免虛構任何資料集。
+5. THE Data_Source_Matrix SHALL 將全國教保資訊網之裁罰紀錄與評鑑結果列為機構關注信號的官方公開來源，並記錄其為免金鑰、可公開追溯之資料源。
 
 ---
 
