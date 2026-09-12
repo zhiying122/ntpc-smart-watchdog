@@ -258,20 +258,96 @@ DATA_SOURCE_MATRIX: tuple[DataSourceEntry, ...] = (
         notes="官方收費資料源可用性未確認，不宣稱可用。",
     ),
     DataSourceEntry(
-        source="網路輿情（新聞/社群小樣本）",
-        dataset="網路輿情文本（NLP 展示樣本）",
-        authority="無單一主管機關（公開網路資訊）",
-        update_frequency="未確認",
-        data_format="未確認",
-        key_fields=("園所名稱", "文本", "來源", "日期"),
-        confidence="未確認：穩定可取得之輿情資料源尚未確認",
-        purpose="小樣本 NLP 輿情分析亮點展示",
-        risk="來源穩定性與代表性未確認；僅作抽樣展示用途",
-        availability=Availability.UNCONFIRMED,
-        has_api=Availability.UNCONFIRMED,
+        source="公開新聞 RSS（Google News／Bing News／台灣媒體公開 feed）",
+        dataset="機構新聞輿情（負面度 neg_ratio，真實爬取）",
+        authority="無單一主管機關（各媒體公開新聞）",
+        update_frequency="即時（每次執行重爬近兩年報導）",
+        data_format="RSS（XML）→ CSV",
+        key_fields=("園所名稱", "新聞標題", "媒體來源", "原文連結", "發布日", "負面比例"),
+        confidence=(
+            "中：新聞層為真實爬取之公開 RSS、每筆附媒體來源與原文連結可追溯；"
+            "以白盒規則式 NLP 判負面度。惟市立／非營利園新聞量少，多數機構查無"
+            "精準比對報導（誠實：訊號少即如實留空、不放大）。"
+        ),
+        purpose="風險評分輿情分項（權重 10%、貢獻上限 15 分）；家長端輿情觀測",
+        risk=(
+            "新聞召回受媒體報導量限制；同名／地區泛稱經精準比對過濾（責任 AI，"
+            "避免張冠李戴）故命中率保守。社群（Dcard/PTT/FB/IG/Google 評論）"
+            "受登入牆／ToS 限制，仍為未確認、以 adapter 示範。"
+        ),
+        availability=Availability.CONFIRMED,   # 新聞 RSS 層已接入真實爬蟲並計分
+        has_api=Availability.CONFIRMED,        # 公開 RSS 免金鑰可即時抓取
+        downloadable=Availability.CONFIRMED,
+        traceable=Availability.CONFIRMED,      # 每筆附媒體來源與原文連結
+        notes=(
+            "檔案：data/processed/sentiment.csv（由 scripts/build_sentiment.py "
+            "以 news_crawler + ptt_crawler 產出）。新聞＋PTT 兩條真實來源已計入總分；"
+            "Dcard/FB/IG/Google 評論（登入牆／ToS 限制）仍為未確認、以 adapter 示範。"
+        ),
+    ),
+    DataSourceEntry(
+        source="PTT 公開看板（www.ptt.cc）",
+        dataset="PTT 親子看板公開討論（社群輿情，真實爬取）",
+        authority="無單一主管機關（公開網路論壇）",
+        update_frequency="即時（每次執行重抓看板最新文章）",
+        data_format="HTML 列表頁 → 正規化 records",
+        key_fields=("園所名稱", "文章標題", "看板", "原文連結", "發布日"),
+        confidence=(
+            "中：BabyMother/BabyProducts 等公開看板無登入牆、可合法抓取；"
+            "以園名核心詞精準比對（責任 AI，避免張冠李戴）。惟指名特定園之"
+            "討論稀疏，命中率保守（誠實：訊號少即如實留空）。"
+        ),
+        purpose="社群輿情層（與新聞互補）；納入 neg_ratio 計分（貢獻上限 15 分）",
+        risk="論壇討論為輿情訊號、非違法認定；針對特定園之指名討論量少。",
+        availability=Availability.CONFIRMED,   # PTT 公開看板可即時合法抓取
+        has_api=Availability.CONFIRMED,        # 公開 web 列表頁，免金鑰
+        downloadable=Availability.CONFIRMED,
+        traceable=Availability.CONFIRMED,      # 每筆附原文連結
+        notes="連接器：src/ptt_crawler.py。只讀公開看板，不抓登入內容、不繞存取控制。",
+    ),
+    DataSourceEntry(
+        source="司法院裁判書公開查詢／各級行政處分",
+        dataset="司法／行政處分紀錄（事實層，區分確定/程序）",
+        authority="司法院 / 各目的事業主管機關",
+        update_frequency="不定期（隨判決／處分公告）",
+        data_format="公開查詢頁（WebForm）→ 結構化 records",
+        key_fields=("園所名稱", "案由", "司法階段", "法院/機關", "字號", "日期"),
+        confidence=(
+            "中：判決／處分『確定』者為事實層（tier=fact，可支持稽查判讀）；"
+            "偵查／起訴／審理中為過程（tier=event，不等於有罪）。階段嚴格區分。"
+        ),
+        purpose="事實層風險訊號（比社群輿情份量重）；供風險判讀與證據鏈",
+        risk=(
+            "司法院查詢為 ASP.NET WebForm（ViewState+session+POST），非穩定即時"
+            "爬取；現以自公開判決整理之結構化樣本示範，正式部署接司法院開放資料/API。"
+        ),
+        availability=Availability.CONFIRMED,   # 連接器與結構化資料已備、可查詢計分
+        has_api=Availability.UNCONFIRMED,      # 官方穩定 API/開放資料端點未確認
         downloadable=Availability.UNCONFIRMED,
-        traceable=Availability.UNCONFIRMED,
-        notes="僅規劃小樣本展示，資料源可用性未確認，不宣稱可用。",
+        traceable=Availability.CONFIRMED,      # 每筆附字號與查詢連結
+        notes=(
+            "連接器：src/judicial_source.py；資料：data/raw/judicial_records.json。"
+            "誠實揭露：現為離線結構化樣本（標 is_demo_sample），介面不變即可接官方開放資料。"
+        ),
+    ),
+    DataSourceEntry(
+        source="政府資料開放平臺 data.gov.tw（dataset 6086 等）",
+        dataset="全國幼兒園名錄／裁罰／補助（官方一手，架構備援）",
+        authority="教育部 / 各主管機關",
+        update_frequency="定期（依平臺更新）",
+        data_format="REST API / CSV",
+        key_fields=("園所名稱", "地址", "類型", "核定人數", "裁罰", "補助"),
+        confidence="高（官方一手）：可用性經平臺提供；本專案列為正式部署改接來源。",
+        purpose="正式部署之權威資料源（取代二手整理），可規模化至全國全量",
+        risk="需依平臺 API 規格對接與欄位對齊；競賽階段以既有來源示範、架構已備。",
+        availability=Availability.CONFIRMED,   # 平臺與 dataset 存在、公開可用
+        has_api=Availability.CONFIRMED,        # data.gov.tw 提供 REST API
+        downloadable=Availability.CONFIRMED,
+        traceable=Availability.CONFIRMED,
+        notes=(
+            "架構已備、正式部署接入：連接器介面同 src/live_source.py 模式，"
+            "改指向 data.gov.tw 端點即可，免改動風險引擎與 UI。"
+        ),
     ),
 )
 

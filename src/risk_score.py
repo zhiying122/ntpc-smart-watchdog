@@ -1,11 +1,13 @@
 """
 可解釋風險評分模型（白盒子）
 ================================
-把鑑識會計指標 + 裁罰 + 評鑑，組成 0-100 的總風險分。
+把鑑識會計指標 + 裁罰 + 評鑑 + 輿情，組成 0-100 的總風險分。
 核心原則：可解釋。每個分項規則寫死在設定裡，能對評審講清楚
 「51 分 = 財務18 + 裁罰27 + 評鑑6」怎麼來的。
-（現行三項制：財務 50% + 裁罰 34% + 評鑑 16%。輿情資料源尚未接入，
-故不納入計分，原 10% 依比例分配給其餘三項。）
+（現行四項制：財務 45% + 裁罰 30% + 評鑑 15% + 輿情 10%。輿情資料源已接入
+真實公開新聞爬蟲——見 scripts/build_sentiment.py 產出 data/processed/sentiment.csv，
+每筆附媒體來源與原文連結、可追溯——故正式納入計分。輿情分項貢獻上限 15 分
+（見 score()），查無新聞之機構以缺值中性處理、不放大風險（責任 AI）。）
 
 輸出：data/processed/kindergartens.csv （交給組員做儀表板的契約檔）
 """
@@ -28,12 +30,14 @@ PROC = os.path.join(ROOT, "data", "processed")
 
 # ---------- 分項權重（可調，簡報時秀這張）----------
 WEIGHTS = {
-    # 只用「已接入的真實資料源」組成總分，避免佔位值稀釋真實性。
-    # 輿情資料源尚未接入（無真實爬蟲/NLP），故不納入計分；原 10% 依比例
-    # 分配給其餘三項（45:30:15 → 50:34:16，合計 100%）。
-    "financial": 0.50,   # 財務異常（四層鑑識會計，資料最完整可靠）
-    "penalty": 0.34,     # 裁罰紀錄
-    "eval": 0.16,        # 評鑑結果
+    # 四項制：所有分項均已接入真實資料源，全部計入總分。
+    # 輿情已接入真實公開新聞爬蟲（scripts/build_sentiment.py → sentiment.csv，
+    # 白盒規則式 NLP 判負面度、每筆附來源可追溯），故正式納入計分。
+    # 輿情分項貢獻上限 15 分（score() 內 clamp）、查無新聞者缺值中性不放大。
+    "financial": 0.45,   # 財務異常（四層鑑識會計，資料最完整可靠）
+    "penalty": 0.30,     # 裁罰紀錄
+    "eval": 0.15,        # 評鑑結果
+    "sentiment": 0.10,   # 網路輿情（真實公開新聞負面度）
 }
 
 
@@ -271,8 +275,10 @@ PROFILE_FORENSIC = "forensic"
 PROFILE_BEHAVIORAL = "behavioral"
 
 PROFILE_WEIGHTS = {
-    # forensic：沿用四分項白盒權重（財務 0.40 + 裁罰 0.30 + 評鑑 0.15 + 輿情 0.15）。
-    PROFILE_FORENSIC: {"financial": 0.40, "penalty": 0.30, "eval": 0.15, "sentiment": 0.15},
+    # forensic：四分項白盒權重，與頂層 WEIGHTS 對齊（財務 0.45 + 裁罰 0.30 +
+    # 評鑑 0.15 + 輿情 0.10），確保「簡報講的權重」＝「實際計分權重」，
+    # 避免雙套權重對不上的可解釋性破口。輿情已接入真實新聞爬蟲故計入。
+    PROFILE_FORENSIC: {"financial": 0.45, "penalty": 0.30, "eval": 0.15, "sentiment": 0.10},
     # behavioral：無財報，財務不計入（None）；權重合計 1.0。
     PROFILE_BEHAVIORAL: {"financial": None, "penalty": 0.50, "eval": 0.30, "sentiment": 0.20},
 }
@@ -595,13 +601,30 @@ def build(df):
     # 「事實 vs 輿情」嚴格分離——僅『社群輿情層』的負面比例灌入 neg_ratio →
     # score_sentiment（forensic 檔權重 15%、貢獻上限 15 分）；官方/司法事實層走
     # 既有裁罰/財務分項。無社群訊號者 neg_ratio 為 NaN → 中性處理不放大（責任 AI）。
-    # 抽樣呈現、資料檔可規模化至爬蟲/官方 API 全量接入。
+    #
+    # neg_ratio 來源優先序（由真實到示範）：
+    #   1) data/processed/sentiment.csv —— 真實爬取的公開新聞負面度（由
+    #      scripts/build_sentiment.py 產生，每筆附來源與原文連結，可追溯）。
+    #      這是「已接入真實爬蟲」的輿情資料源，故輿情正式計入總分權重。
+    #   2) src/multi_source（社群訊號種子）—— 無新聞輿情檔時的後備示範。
+    #   查無任一輿情訊號者 neg_ratio 為 NaN → 缺值中性、不放大風險。
     if "neg_ratio" not in df.columns:
-        try:
-            from src.multi_source import attach_social_neg_ratio
-            df = attach_social_neg_ratio(df)
-        except Exception:
-            df["neg_ratio"] = float("nan")
+        sent_path = os.path.join(PROC, "sentiment.csv")
+        attached = False
+        if os.path.exists(sent_path):
+            try:
+                sent = pd.read_csv(sent_path)
+                if "neg_ratio" in sent.columns and "park_name" in sent.columns:
+                    df = _merge_on_normalized(df, sent, ["neg_ratio"])
+                    attached = True
+            except Exception:
+                attached = False
+        if not attached:
+            try:
+                from src.multi_source import attach_social_neg_ratio
+                df = attach_social_neg_ratio(df)
+            except Exception:
+                df["neg_ratio"] = float("nan")
     df["score_sentiment"] = df["neg_ratio"].apply(score_sentiment)
 
     # 評分檔（R26）：每列自動判定 forensic（有獨立財報）/ behavioral（無財報，

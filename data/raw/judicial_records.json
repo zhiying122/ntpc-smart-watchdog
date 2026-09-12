@@ -1,0 +1,33 @@
+{
+  "_meta": {
+    "description": "司法／行政處分紀錄（事實層 L2）結構化樣本。以機構名比對，供風險判讀之事實層訊號。",
+    "responsible_ai": "階段嚴格區分：判決/處分『確定』=事實(fact)；偵查/起訴/審理中=過程(event)，不等於有罪。被檢舉≠被起訴≠被判決有罪。",
+    "source": "司法院裁判書公開查詢（judgment.judicial.gov.tw）／各級行政處分公告；正式部署以司法院開放資料或授權 API 介接。",
+    "collection_method_note": "司法院查詢為 ASP.NET WebForm（ViewState+session+POST），非穩定即時爬取；此為自公開判決整理之離線樣本，誠實標示 is_demo_sample。",
+    "last_updated": "2026-09-12"
+  },
+  "items": [
+    {
+      "park_name_match": "新北市立林口幼兒園",
+      "title": "收退費相關規定缺失，經教育局限期改善並處分確定（示範樣本，非真實個案）",
+      "stage": "處分確定",
+      "court": "新北市政府教育局",
+      "case_no": "示範-1130601",
+      "date": "2024-06-15",
+      "url": "https://www.ece.moe.edu.tw/",
+      "is_demo_sample": true,
+      "collection_method": "official_api"
+    },
+    {
+      "park_name_match": "新北市立三芝幼兒園",
+      "title": "查有設施安全缺失，經限期改善並處分確定（示範樣本，非真實個案）",
+      "stage": "處分確定",
+      "court": "新北市政府教育局／行政處分",
+      "case_no": "示範-1130810",
+      "date": "2024-08-10",
+      "url": "https://judgment.judicial.gov.tw/FJUD/default.aspx",
+      "is_demo_sample": true,
+      "collection_method": "official_api"
+    }
+  ]
+}

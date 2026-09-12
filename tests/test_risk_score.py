@@ -6,7 +6,8 @@
   - 各分項加權貢獻明細 contributions；可加性不變式
     round(sum(contributions.values()), 1) == total（R5.2, R10.3）。
   - 四級分級 低／中／高／極高（R10.2）。
-  - 保留既有加權 financial 0.50 + penalty 0.34 + eval 0.16（R10.6）。
+  - 四項制加權 financial 0.45 + penalty 0.30 + eval 0.15 + sentiment 0.10
+    （輿情已接入真實公開新聞爬蟲，正式計入；R10.6）。
 
 對應 Task 6.1「實作分項貢獻明細與可加性」。
 屬性測試（Property 17）另見 Task 6.3。
@@ -25,11 +26,12 @@ from src.risk_score import (
 
 
 def _entity(**overrides):
-    """建立一個帶已算好分項分的評分輸入 dict。"""
+    """建立一個帶已算好分項分的評分輸入 dict（四項制含輿情）。"""
     base = {
         "score_financial": 80.0,
         "score_penalty": 50.0,
         "score_eval": 20.0,
+        "score_sentiment": 0.0,
     }
     base.update(overrides)
     return base
@@ -41,19 +43,24 @@ def test_returns_risk_breakdown_type():
     assert isinstance(rb, RiskBreakdown)
 
 
-def test_default_weights_preserved():
-    """預設沿用既有加權 financial 0.50 + penalty 0.34 + eval 0.16（R10.6）。"""
-    assert WEIGHTS == {"financial": 0.50, "penalty": 0.34, "eval": 0.16}
+def test_default_weights_four_factor():
+    """四項制加權 financial 0.45 + penalty 0.30 + eval 0.15 + sentiment 0.10
+    （輿情已接入真實公開新聞爬蟲，正式計入；R10.6）。"""
+    assert WEIGHTS == {"financial": 0.45, "penalty": 0.30,
+                       "eval": 0.15, "sentiment": 0.10}
     rb = score(_entity())
-    assert rb.weights == {"financial": 0.50, "penalty": 0.34, "eval": 0.16}
+    assert rb.weights == {"financial": 0.45, "penalty": 0.30,
+                          "eval": 0.15, "sentiment": 0.10}
 
 
 def test_contributions_are_weighted_scores():
     """各分項貢獻 = 權重 × 分項分數（R10.3）。"""
-    rb = score(_entity(score_financial=80.0, score_penalty=50.0, score_eval=20.0))
-    assert rb.contributions["financial"] == pytest.approx(0.50 * 80.0)
-    assert rb.contributions["penalty"] == pytest.approx(0.34 * 50.0)
-    assert rb.contributions["eval"] == pytest.approx(0.16 * 20.0)
+    rb = score(_entity(score_financial=80.0, score_penalty=50.0,
+                       score_eval=20.0, score_sentiment=0.0))
+    assert rb.contributions["financial"] == pytest.approx(0.45 * 80.0)
+    assert rb.contributions["penalty"] == pytest.approx(0.30 * 50.0)
+    assert rb.contributions["eval"] == pytest.approx(0.15 * 20.0)
+    assert rb.contributions["sentiment"] == pytest.approx(0.10 * 0.0)
 
 
 def test_additivity_invariant():
@@ -63,9 +70,11 @@ def test_additivity_invariant():
 
 
 def test_total_within_range():
-    """total 落於 0–100（含端點）。"""
-    low = score(_entity(score_financial=0.0, score_penalty=0.0, score_eval=0.0))
-    high = score(_entity(score_financial=100.0, score_penalty=100.0, score_eval=100.0))
+    """total 落於 0–100（含端點）。全分項給定值，避免缺值中性影響端點。"""
+    low = score(_entity(score_financial=0.0, score_penalty=0.0,
+                        score_eval=0.0, score_sentiment=0.0))
+    high = score(_entity(score_financial=100.0, score_penalty=100.0,
+                         score_eval=100.0, score_sentiment=100.0))
     assert low.total == 0.0
     assert high.total == 100.0
     assert 0.0 <= low.total <= 100.0
@@ -73,8 +82,12 @@ def test_total_within_range():
 
 
 def test_all_max_scores_total_100():
-    """全滿分 → 總分 100（權重合計為 1）。"""
-    rb = score(_entity(score_financial=100.0, score_penalty=100.0, score_eval=100.0))
+    """全滿分（四分項）→ 總分 100（權重合計為 1）。
+
+    註：輿情分項貢獻在 score() 內 clamp 上限 15 分（0.10×100=10 未觸頂），
+    故四分項全滿分之總分為 45+30+15+10 = 100。"""
+    rb = score(_entity(score_financial=100.0, score_penalty=100.0,
+                       score_eval=100.0, score_sentiment=100.0))
     assert rb.total == 100.0
 
 
