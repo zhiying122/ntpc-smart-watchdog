@@ -129,9 +129,9 @@ def geocode_cached(address: str) -> dict:
 
 
 def data_updated_at() -> str:
-    """回傳真實資料源的最後抓取時間（ISO 轉為易讀）；無則回退檔案時間。"""
+    """回傳真實資料源的最後抓取時間（ISO 轉為易讀）；無則回退快照時間。"""
     d = load_public_dataset_cached()
-    iso = d.get("fetched_at")
+    iso = d.get("fetched_at") or (snapshot_meta() or {}).get("updated_at")
     if iso:
         try:
             from datetime import datetime
@@ -140,6 +140,24 @@ def data_updated_at() -> str:
         except (ValueError, TypeError):
             return str(iso)
     return "—"
+
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def snapshot_meta() -> dict | None:
+    """讀取由 GitHub Actions 每日更新的快照 meta（若存在）。
+
+    回傳 {attribution, updated_at, sources:{preschools:{count,fetched_at},
+    penalties:{...}}}；無檔或解析失敗回 None。供頁面誠實揭露「自動更新時間
+    與筆數」。此檔由 scripts/update_snapshots.py 產生並進版控。
+    """
+    meta_path = os.path.join(ROOT, "data", "snapshots", "snapshot_meta.json")
+    if not os.path.exists(meta_path):
+        return None
+    try:
+        with open(meta_path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 @st.cache_data(show_spinner=False, ttl=6 * 3600)
@@ -211,57 +229,370 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@600;700;900&display=swap');
+
+    /* ===================================================================
+       設計 tokens：家長版「安心找幼兒園」
+       -------------------------------------------------------------------
+       調性：溫暖親和、沉穩可信，介於「親子健康服務 App」與「政府便民網」
+       之間，刻意不同於後台稽查終端機的深色高密度視覺。
+       主色：深鼠尾草綠（sage）— 聯想安心/成長/照護，比高飽和粉黃更專業。
+       語意色（不可更動角色）：
+         --safe  安靜綠  = 無裁罰紀錄（陳述客觀事實，非風險評分）
+         --alert 暖琥珀  = 有／經標記裁罰（提醒非警報，避免恐慌）
+       兩者刻意與主色（鼠尾草綠）拉開明度與彩度，畫面上一眼可辨。
+       =================================================================== */
+    :root {
+      --bg:#F6F4EE;            /* 極淺暖灰卡其底色（非純白，避免冷硬） */
+      --bg-soft:#FBFAF6;       /* 更淺的分層底 */
+      --surface:#FFFFFF;       /* 卡片面 */
+      --border:#E7E2D6;        /* 暖調邊線 */
+      --border-soft:#F0ECE2;
+      /* 中性文字：全數校準至 WCAG AA（正文 ≥4.5:1）於底色與卡片面上皆達標 */
+      --ink:#33404E;           /* 主文字（沉穩藍灰，不用純黑）9.6:1 */
+      --ink-strong:#26313C;    /* 標題文字 12:1 */
+      --ink-dim:#5A636E;       /* 次要文字（校準後 5.5:1 / 6.1:1） */
+      --ink-faint:#676E76;     /* 最淡註記（校準後 4.7:1 / 5.2:1，仍達正文 AA） */
+
+      /* 主色：深鼠尾草綠。按鈕背景加深至白字達 AA（正式、沉穩，貼政府調性） */
+      --sage:#4F7566;          /* 主色（白字 5.2:1）— 按鈕/強調 */
+      --sage-strong:#446454;   /* 主色 hover/active（白字 6.6:1） */
+      --sage-soft:#E8F0EC;     /* 主色柔和底（選中態） */
+      --sage-tint:#F1F5F2;     /* 主色極淡底 */
+      --sage-ink:#365349;      /* 主色系深字（選中態文字）7.3:1 */
+
+      /* 語意色：圓點/地圖標記用「識別色」（不可變，對齊 parent_map 與地圖）；
+         當作「狀態文字」時另用加深的 -text 版，確保白/淺底上可讀（AA）。
+         icon color 與 text color 分離是無障礙標準做法。 */
+      --safe:#5B9E7A;          /* 識別：無裁罰（安靜綠）— 圓點/標記，角色不可變 */
+      --safe-text:#3A7555;     /* 無裁罰狀態文字（5.5:1 / 4.9:1） */
+      --safe-soft:#EAF3EE;
+      --alert:#D99A4E;         /* 識別：有/經標記裁罰（暖琥珀）— 圓點/標記，角色不可變 */
+      --alert-text:#9A5E14;    /* 有裁罰狀態文字（5.3:1 / 4.8:1） */
+      --alert-soft:#FAF1E4;
+      --home:#3A6EA5;          /* 家的位置（穩重藍，對齊 parent_map.COLOR_HOME）5.3:1 */
+
+      /* 字體角色分工：宋體(serif)負責標題與大數字，傳達「政府正式公文／
+         社區公佈欄」的溫度與正式感；無襯線(sans)負責內文可讀性。 */
+      --font-serif:'Noto Serif TC','Songti TC','PMingLiU',serif;
+      --font-sans:'Noto Sans TC','Microsoft JhengHei',sans-serif;
+      /* 距離等資料數字用等寬字，掃視比較時對齊、像儀表讀數 */
+      --font-num:'Roboto Mono','SFMono-Regular','Consolas',monospace;
+
+      --radius:14px;
+      --radius-sm:10px;
+      --radius-xs:8px;
+      --shadow-sm:0 1px 2px rgba(58,66,54,.05);
+      --shadow-md:0 4px 16px rgba(58,66,54,.08);
+      --shadow-lift:0 8px 24px rgba(58,66,54,.12);
+      --ease:cubic-bezier(.22,.61,.36,1);
+    }
+
     html, body, [class*="css"], .stApp {
-      font-family:'Noto Sans TC','Microsoft JhengHei',sans-serif; color:#33404E; }
-    .stApp { background:#FBFAF7; }
+      font-family:var(--font-sans); color:var(--ink); }
+    .stApp { background:var(--bg); }
     #MainMenu, footer, [data-testid="stDecoration"] { visibility:hidden; }
     [data-testid="stHeader"] { height:0 !important; background:transparent; }
-    .block-container { padding-top:1.4rem; max-width:1200px; }
+    .block-container { padding-top:1.6rem; max-width:1180px; }
 
-    .warm-topbar { color:#8A7E6B; font-size:.82rem; letter-spacing:.03em; }
-    .warm-title { font-size:1.7rem; font-weight:700; color:#2C3A2E; margin:2px 0 4px; }
-    .warm-sub { color:#5C6670; font-size:.95rem; line-height:1.75; max-width:760px; }
+    /* ---------- 機關抬頭 ----------
+       仿正式服務網站／公文抬頭：單行、克制、資訊性。不是行銷 banner。
+       左側細直條＝機關識別；機關全稱用宋體（正式感）；右側放資料時效。 */
+    .gov-head { display:flex; align-items:flex-end; justify-content:space-between;
+      gap:16px; padding:2px 0 14px; border-bottom:2px solid var(--ink-strong);
+      margin-bottom:4px; flex-wrap:wrap; }
+    .gov-head-left { display:flex; align-items:center; gap:14px; }
+    .gov-head-bar { width:4px; align-self:stretch; min-height:44px;
+      background:var(--sage); border-radius:2px; }
+    .gov-org { font-family:var(--font-serif); font-weight:700; color:var(--ink-strong);
+      font-size:1.02rem; line-height:1.3; }
+    .gov-service { font-family:var(--font-serif); font-weight:900;
+      color:var(--ink-strong); font-size:1.9rem; line-height:1.15;
+      letter-spacing:.01em; margin-top:2px; }
+    .gov-head-right { text-align:right; color:var(--ink-dim); font-size:.76rem;
+      line-height:1.7; padding-bottom:2px; }
+    .gov-head-right b { color:var(--ink-strong); font-weight:700; }
 
-    .warm-card { background:#fff; border:1px solid #ECE7DE; border-radius:12px;
-      padding:18px 20px; margin:10px 0; }
-    .warm-note { background:#F3F6F1; border:1px solid #DBE5D6; border-radius:10px;
-      padding:12px 16px; color:#42513F; font-size:.85rem; line-height:1.75; }
+    /* 服務說明：一句話講清楚這是什麼、資料怎麼來，取代行銷副標 */
+    .lead { color:var(--ink-dim); font-size:.92rem; line-height:1.8;
+      max-width:820px; margin:12px 0 4px; }
 
-    .badge { display:inline-block; padding:3px 12px; border-radius:999px;
-      font-size:.82rem; font-weight:700; color:#fff; }
-    .chip { display:inline-block; padding:2px 10px; border-radius:999px;
-      font-size:.76rem; background:#F0EDE6; color:#6B6357; margin-right:6px; }
+    /* 資料更新狀態列：誠實揭露即時/備援、最後更新、每日自動更新機制與筆數 */
+    .data-status { display:flex; flex-wrap:wrap; align-items:center; gap:7px;
+      margin:10px 0 2px; padding:8px 14px; background:var(--surface);
+      border:1px solid var(--border); border-radius:var(--radius-sm);
+      font-size:.78rem; color:var(--ink-dim); }
+    .data-status b { color:var(--ink-strong); font-weight:700; }
+    .data-status .ds-dot { width:8px; height:8px; border-radius:50%; }
+    .data-status .ds-state { font-weight:700; }
+    .data-status .ds-sep { color:var(--border); }
+
+    /* ---------- 結果大數字焦點 ----------
+       搜尋後家長最想知道「附近有幾間、我有多少選擇」。用真實數字當錨點，
+       比任何裝飾色塊誠實也更有說服力。 */
+    .count-focus { display:flex; align-items:baseline; gap:12px; margin:2px 0 10px; }
+    .count-num { font-family:var(--font-serif); font-weight:900;
+      font-size:3.4rem; line-height:1; color:var(--sage); letter-spacing:-.02em; }
+    .count-cap { color:var(--ink); font-size:.98rem; line-height:1.4; }
+    .count-cap b { color:var(--ink-strong); }
+    .count-scope { color:var(--ink-dim); font-size:.82rem; }
+
+    .warm-sub { color:var(--ink-dim); font-size:.98rem; line-height:1.85;
+      max-width:780px; }
+
+    /* ---------- 卡片與提示語言 ---------- */
+    .warm-card { background:var(--surface); border:1px solid var(--border);
+      border-radius:var(--radius); padding:20px 22px; margin:12px 0;
+      box-shadow:var(--shadow-sm); }
+    .warm-note { background:var(--sage-tint); border:1px solid var(--border-soft);
+      border-left:3px solid var(--sage); border-radius:var(--radius-sm);
+      padding:13px 17px; color:#42513F; font-size:.86rem; line-height:1.8; }
+
+    .badge { display:inline-flex; align-items:center; gap:6px; padding:4px 13px;
+      border-radius:999px; font-size:.82rem; font-weight:700; color:#fff;
+      box-shadow:var(--shadow-sm); }
+    .chip { display:inline-block; padding:3px 11px; border-radius:999px;
+      font-size:.76rem; background:var(--sage-tint); border:1px solid var(--border-soft);
+      color:var(--ink-dim); margin-right:6px; }
 
     .kv { width:100%; border-collapse:collapse; margin-top:6px; }
-    .kv td { padding:10px 12px; border-bottom:1px solid #F0ECE4; font-size:.9rem;
-      vertical-align:top; }
+    .kv td { padding:12px 14px; border-bottom:1px solid var(--border-soft);
+      font-size:.9rem; vertical-align:top; }
     .kv tr:last-child td { border-bottom:none; }
-    .kv .k { color:#8A8073; font-weight:600; white-space:nowrap; width:120px; }
-    .na { color:#AAA290; }
-    .meta { color:#9A9080; font-size:.76rem; margin-top:4px; }
+    .kv .k { color:var(--ink-dim); font-weight:600; white-space:nowrap; width:120px; }
+    .na { color:var(--ink-faint); }
+    .meta { color:var(--ink-faint); font-size:.76rem; margin-top:4px; }
 
-    .tl-item { border-left:3px solid #E4DED3; padding:2px 0 14px 16px;
+    .tl-item { border-left:2px solid var(--border); padding:2px 0 16px 18px;
       margin-left:6px; position:relative; }
-    .tl-dot { position:absolute; left:-7px; top:4px; width:11px; height:11px;
-      border-radius:50%; border:2px solid #fff; }
-    .tl-date { color:#9A9080; font-size:.76rem; }
-    .tl-title { font-weight:600; color:#33404E; font-size:.92rem; margin:1px 0; }
-    .tl-ex { color:#5C6670; font-size:.85rem; line-height:1.65; }
-    a { color:#3A6EA5; }
-    .foot { color:#9A9080; font-size:.78rem; line-height:1.75; margin-top:20px; }
+    .tl-dot { position:absolute; left:-6px; top:4px; width:11px; height:11px;
+      border-radius:50%; border:2px solid #fff; box-shadow:0 0 0 1px var(--border); }
+    .tl-date { color:var(--ink-faint); font-size:.76rem; }
+    .tl-title { font-weight:600; color:var(--ink); font-size:.92rem; margin:1px 0; }
+    .tl-ex { color:var(--ink-dim); font-size:.85rem; line-height:1.7; }
+    a { color:var(--home); }
+    .foot { color:var(--ink-faint); font-size:.78rem; line-height:1.8; margin-top:24px;
+      border-top:1px solid var(--border); padding-top:18px; }
+
+    /* ===================================================================
+       Streamlit 元件外觀覆寫（讓預設元件符合家長版視覺語言）
+       以「class 選擇器（.stButton/.stTextInput…）＋ 通用標籤 ＋ key-based
+       class（st-key-*）」多重後備鎖定，跨 Streamlit 版本較 data-testid 穩定。
+       =================================================================== */
+
+    /* 區段小標題（st.markdown('#### …') / ##### …）：宋體，正式感 */
+    .block-container h4, .block-container h5, .block-container h3 {
+      font-family:var(--font-serif) !important;
+      color:var(--ink-strong) !important; font-weight:700 !important; letter-spacing:0; }
+
+    /* ---------- 文字輸入框 / 文字區 ---------- */
+    .stTextInput input, .stTextArea textarea {
+      background:var(--bg-soft) !important; border:1.5px solid var(--border) !important;
+      border-radius:var(--radius-sm) !important; color:var(--ink) !important;
+      font-size:.92rem !important; padding:11px 14px !important;
+      transition:border-color .18s var(--ease), box-shadow .18s var(--ease),
+                 background .18s var(--ease) !important; box-shadow:none !important; }
+    .stTextInput input::placeholder, .stTextArea textarea::placeholder {
+      color:var(--ink-faint) !important; }
+    .stTextInput input:hover, .stTextArea textarea:hover { border-color:#D3CDBF !important; }
+    .stTextInput input:focus, .stTextArea textarea:focus {
+      border-color:var(--sage) !important; background:#fff !important;
+      box-shadow:0 0 0 3px rgba(94,139,126,.15) !important; outline:none !important; }
+    /* baseweb 外層容器：移除預設外框，避免雙重邊框 */
+    .stTextInput div[data-baseweb="base-input"],
+    .stTextInput div[data-baseweb="input"] {
+      background:transparent !important; border:none !important; }
+    label p, .stWidgetLabel p {
+      color:var(--ink-dim) !important; font-weight:600 !important; font-size:.85rem !important; }
+
+    /* ===================================================================
+       按鈕視覺階層（回應：家長只需執行一個關鍵動作＝定位並搜尋）
+       主按鈕＝實色、方正圓角、加重、加大  → 全頁視覺權重最高
+       次要按鈕＝白底外框、輕量、無上浮      → 退居其後
+       篩選鈕  ＝外框式、更小、膠囊          → 最輕，只是「勾選項」
+       三者刻意用不同形狀與填色邏輯，不是同一家族。
+       =================================================================== */
+
+    /* ---------- 次要按鈕（清單「查看公開資訊」、表單送出） ---------- */
+    .stButton > button, .stFormSubmitButton > button {
+      background:#fff !important; border:1px solid var(--border) !important;
+      color:var(--ink-dim) !important; font-weight:600 !important;
+      border-radius:var(--radius-sm) !important; padding:9px 16px !important;
+      box-shadow:none !important;
+      transition:border-color .16s var(--ease), background .16s var(--ease),
+                 color .16s var(--ease) !important; }
+    .stButton > button:hover, .stFormSubmitButton > button:hover {
+      border-color:var(--sage) !important; background:var(--sage-tint) !important;
+      color:var(--sage-ink) !important; }
+    .stButton > button p, .stFormSubmitButton > button p { font-weight:600 !important; }
+
+    /* ---------- 主行動按鈕（定位並搜尋，key=search_btn） ----------
+       方正圓角(6px) + 實色主色 + 加重加大，與膠囊篩選鈕明確拉開階層。 */
+    .st-key-search_btn > button,
+    .stButton > button[kind="primary"],
+    .stButton > button[data-testid="stBaseButton-primary"] {
+      background:var(--sage) !important; border:1px solid var(--sage) !important;
+      color:#fff !important; font-weight:700 !important; font-size:.98rem !important;
+      border-radius:6px !important; padding:13px 22px !important;
+      letter-spacing:.04em !important;
+      box-shadow:0 2px 6px rgba(94,139,126,.28) !important;
+      transition:background .16s var(--ease), box-shadow .16s var(--ease) !important; }
+    .st-key-search_btn > button:hover,
+    .stButton > button[kind="primary"]:hover {
+      background:var(--sage-strong) !important; border-color:var(--sage-strong) !important;
+      color:#fff !important; box-shadow:0 4px 12px rgba(94,139,126,.36) !important; }
+    .st-key-search_btn > button p,
+    .stButton > button[kind="primary"] p { color:#fff !important; font-weight:700 !important; }
+
+    /* ---------- 類別篩選鈕（st.pills）：外框式、輕量膠囊 ----------
+       是「勾選的輔助條件」而非行動，視覺重量刻意最低。未選＝白底細框虛感；
+       選中＝主色細框＋淺底＋主色勾點，清楚但不搶主按鈕。 */
+    .stButtonGroup button, [data-testid="stPills"] button {
+      border-radius:999px !important; border:1px solid var(--border) !important;
+      background:transparent !important; color:var(--ink-dim) !important;
+      font-weight:500 !important; font-size:.84rem !important; padding:5px 15px !important;
+      transition:all .14s var(--ease) !important; box-shadow:none !important; }
+    .stButtonGroup button:hover, [data-testid="stPills"] button:hover {
+      border-color:var(--sage) !important; color:var(--sage-ink) !important;
+      background:transparent !important; }
+    /* 選中態：主色細框＋淺底＋深字（外框式，非實色填滿，與主按鈕區隔） */
+    .stButtonGroup button[aria-pressed="true"],
+    .stButtonGroup button[data-selected="true"],
+    .stButtonGroup button[kind="pillsActive"],
+    [data-testid="stPills"] button[aria-pressed="true"],
+    [data-testid="stPills"] button[data-selected="true"] {
+      background:var(--sage-soft) !important; border-color:var(--sage) !important;
+      color:var(--sage-ink) !important; font-weight:700 !important;
+      box-shadow:none !important; }
+
+    /* ---------- 距離滑桿（select_slider） ---------- */
+    .stSlider [role="slider"] {
+      background:#fff !important; border:3px solid var(--sage) !important;
+      box-shadow:var(--shadow-md) !important;
+      transition:transform .14s var(--ease), box-shadow .14s var(--ease) !important; }
+    .stSlider [role="slider"]:hover { transform:scale(1.12); }
+    /* 已填充軌道段用主色（baseweb slider 內層填充 div） */
+    .stSlider [data-baseweb="slider"] div[style*="background"] {
+      /* 保守：只在明確的填充段套主色，避免整條軌道被染色 */ }
+    .stSlider [data-testid="stSliderTickBarMin"],
+    .stSlider [data-testid="stSliderTickBarMax"],
+    .stSlider [data-testid="stThumbValue"] {
+      color:var(--sage-ink) !important; font-weight:700 !important; }
+
+    /* ---------- multiselect（行政區） ---------- */
+    .stMultiSelect div[data-baseweb="select"] > div {
+      background:var(--bg-soft) !important; border:1.5px solid var(--border) !important;
+      border-radius:var(--radius-sm) !important;
+      transition:border-color .18s var(--ease), box-shadow .18s var(--ease) !important; }
+    .stMultiSelect div[data-baseweb="select"] > div:focus-within {
+      border-color:var(--sage) !important; box-shadow:0 0 0 3px rgba(94,139,126,.15) !important; }
+    .stMultiSelect [data-baseweb="tag"] {
+      background:var(--sage-soft) !important; color:var(--sage-ink) !important;
+      border-radius:7px !important; }
+
+    /* ---------- 分頁籤 tabs ---------- */
+    .stTabs [data-baseweb="tab-list"] { gap:4px; border-bottom:1px solid var(--border); }
+    .stTabs [data-baseweb="tab"] {
+      background:transparent !important;
+      border-radius:var(--radius-xs) var(--radius-xs) 0 0 !important;
+      padding:9px 18px !important; color:var(--ink-dim) !important; font-weight:600 !important;
+      transition:color .16s var(--ease), background .16s var(--ease) !important; }
+    .stTabs [data-baseweb="tab"]:hover {
+      background:var(--sage-tint) !important; color:var(--sage-ink) !important; }
+    .stTabs [aria-selected="true"] {
+      color:var(--sage-ink) !important; background:var(--sage-tint) !important; }
+    .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] {
+      background:var(--sage) !important; }
+
+    /* ---------- 清單捲動容器 ---------- */
+    [data-testid="stVerticalBlockBorderWrapper"] {
+      scrollbar-width:thin; scrollbar-color:var(--border) transparent; }
+
+    /* ---------- 機構清單卡片 ----------
+       視覺錨點＝距離大數字（家長掃視整排卡片時真正在比較的東西），
+       不是裝飾色塊。裁罰狀態圓點保留（家長第二在乎的誠信訊號）。
+       不做裝飾性 hover 上浮；hover/選中只做「對應高亮」— 這個動態有實際
+       功能意義（對照清單↔地圖），值得做，其餘動效拿掉。 */
+    .inst-card { display:flex; align-items:stretch; gap:14px; background:var(--surface);
+      border:1px solid var(--border); border-left:4px solid var(--dot,#AEB4BC);
+      border-radius:var(--radius-sm); padding:13px 15px; margin-bottom:9px;
+      transition:background .16s var(--ease), border-color .16s var(--ease),
+                 box-shadow .16s var(--ease); }
+    .inst-card:hover { background:var(--bg-soft); border-color:#D8D2C4; }
+    /* 選中／對應高亮：左界主色加粗、底色微變、主色細外框 */
+    .inst-card.is-active { background:var(--sage-tint);
+      box-shadow:inset 3px 0 0 var(--sage), 0 0 0 1px rgba(94,139,126,.35); }
+
+    /* 距離錨點：等寬大數字，掃視比較用 */
+    .inst-dist { flex:0 0 auto; width:66px; display:flex; flex-direction:column;
+      align-items:flex-start; justify-content:center;
+      border-right:1px solid var(--border-soft); padding-right:12px; }
+    .inst-dist .dnum { font-family:var(--font-num); font-weight:700;
+      font-size:1.55rem; line-height:1; color:var(--ink-strong);
+      font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
+    .inst-dist .dunit { font-size:.72rem; color:var(--ink-dim); margin-top:3px;
+      font-weight:600; }
+    .inst-dist .dnone { font-family:var(--font-sans); font-size:.74rem;
+      color:var(--ink-faint); line-height:1.3; }
+
+    .inst-body { flex:1 1 auto; min-width:0; display:flex; flex-direction:column;
+      justify-content:center; }
+    .inst-name { font-weight:700; color:var(--ink-strong); font-size:.98rem;
+      line-height:1.35; margin-bottom:3px; word-break:break-all; }
+    .inst-meta { color:var(--ink-dim); font-size:.8rem; }
+    .inst-status { display:inline-flex; align-items:center; gap:6px; margin-top:6px;
+      font-size:.79rem; font-weight:700; }
+    .inst-status .sdot { width:10px; height:10px; border-radius:50%;
+      box-shadow:0 0 0 3px var(--sdot-halo,rgba(0,0,0,.04)); }
+
+    /* ---------- 地圖圓角容器 ----------
+       st_folium 產生獨立 iframe，直接對該 iframe 套柔和圓角外框，
+       讓地圖與整體卡片語言一致，不像硬生生嵌入的外部元件。 */
+    iframe[title="streamlit_folium.st_folium"] {
+      border:1px solid var(--border) !important; border-radius:var(--radius) !important;
+      overflow:hidden !important; box-shadow:var(--shadow-md) !important; }
+
+    /* ---------- 圖示化圖例卡片列 ---------- */
+    .legend-row { display:flex; flex-wrap:wrap; gap:10px; margin-top:10px; }
+    .legend-pill { display:inline-flex; align-items:center; gap:8px;
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:999px; padding:6px 14px; font-size:.8rem; color:var(--ink-dim);
+      box-shadow:var(--shadow-sm); }
+    .legend-pill .ldot { width:12px; height:12px; border-radius:50%;
+      border:2px solid #fff; box-shadow:0 0 0 1px var(--border); }
+
+    /* ---------- 結果狀態說明列 ---------- */
+    .result-sub { font-size:.78rem; color:var(--ink-faint); margin-top:6px; }
+    .dot-inline { display:inline-block; width:9px; height:9px; border-radius:50%;
+      vertical-align:middle; margin-right:3px; }
+
+    /* ---------- 載入轉圈：改為主色調 ---------- */
+    [data-testid="stSpinner"] i, .stSpinner > div > div {
+      border-top-color:var(--sage) !important; }
+
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 st.markdown(
-    """
-    <div class="warm-topbar">新北市政府教育局　·　公開資料便民服務</div>
-    <div class="warm-title">安心找幼兒園</div>
-    <div class="warm-sub">輸入您家的地址，看看附近有哪些教保機構。每一項資訊都來自公開資料來源，
-    並標註來源與更新時間。我們也整理了公開的網路討論觀測，幫助您多一個了解的角度——
-    這些是「討論的變化」，不是對機構的評價，最終仍建議您實地參訪並向園所查證。</div>
+    f"""
+    <div class="gov-head">
+      <div class="gov-head-left">
+        <div class="gov-head-bar"></div>
+        <div>
+          <div class="gov-org">新北市政府教育局</div>
+          <div class="gov-service">安心找幼兒園</div>
+        </div>
+      </div>
+      <div class="gov-head-right">
+        公開資料查詢服務<br>
+        資料更新：<b>{html.escape(data_updated_at())}</b>
+      </div>
+    </div>
+    <div class="lead">輸入您家的地址，就能看到附近有哪些教保機構、離您多遠，以及每一間的
+    公開紀錄。所有資訊都標註了來源與更新時間；網路討論觀測是「討論的變化」而非對機構的評價，
+    最終仍建議您實地參訪並向園所查證。</div>
     """,
     unsafe_allow_html=True,
 )
@@ -281,13 +612,28 @@ PENALTY_INDEX = _pubdata.get("penalty_index", {})
 
 sentiment_data = load_sentiment()
 
-# 資料來源與時效橫幅（誠實揭露：即時 vs 離線快取）。
-_src_line = (f"資料來源：{_pubdata.get('attribution','')}　·　"
-             f"{'即時同步' if _pubdata.get('is_live') else '離線快取'}"
-             f"　·　最後更新 {data_updated_at()}")
-if _pubdata.get("note"):
-    _src_line += "　·　" + _pubdata["note"]
-st.caption(_src_line)
+# 資料更新狀態列（誠實揭露：即時同步 vs 離線備援 + 自動更新機制）。
+# 有 GitHub Actions 每日自動更新 data/snapshots（版控），即時抓網失敗時退回。
+_is_live = bool(_pubdata.get("is_live"))
+_status_label = "即時同步" if _is_live else "自動更新備援"
+_status_color = "var(--safe-text)" if _is_live else "var(--sage-ink)"
+_meta = snapshot_meta()
+_pre_n = (_meta or {}).get("sources", {}).get("preschools", {}).get("count")
+_count_txt = f"　·　全國 {_pre_n:,} 間機構資料".replace(",", ",") if _pre_n else ""
+_note_txt = f"　·　{_pubdata['note']}" if _pubdata.get("note") else ""
+st.markdown(
+    "<div class='data-status'>"
+    f"<span class='ds-dot' style='background:{_status_color}'></span>"
+    f"<span class='ds-state' style='color:{_status_color}'>{html.escape(_status_label)}</span>"
+    f"<span class='ds-sep'>·</span>"
+    f"最後更新 <b>{html.escape(data_updated_at())}</b>"
+    "<span class='ds-sep'>·</span>"
+    "每日自動更新"
+    f"{html.escape(_count_txt)}"
+    f"<span class='ds-sep'>·</span>資料來源：{html.escape(_pubdata.get('attribution',''))}"
+    f"{html.escape(_note_txt)}"
+    "</div>",
+    unsafe_allow_html=True)
 
 # session 狀態：選定機構、家的位置
 st.session_state.setdefault("selected_park_id", None)
@@ -298,7 +644,6 @@ st.session_state.setdefault("home", None)  # dict(lat,lng,label)
 # 篩選列（地址 + 距離 + 公私立 + 類型）
 # ===========================================================================
 st.markdown("<div class='warm-card'>", unsafe_allow_html=True)
-st.markdown("#### 　從您家附近開始找")
 
 c1, c2 = st.columns([2.4, 1])
 with c1:
@@ -328,7 +673,8 @@ with c4:
                               placeholder="選擇行政區（可留空，不限）")
 with c5:
     st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-    do_search = st.button("　定位並搜尋　", type="primary", use_container_width=True)
+    do_search = st.button("定位並搜尋", type="primary", use_container_width=True,
+                          key="search_btn")
 
 # 觸發定位
 if do_search and address.strip():
@@ -415,10 +761,10 @@ def _penalty_status_short(park_id: str) -> str:
     except (TypeError, ValueError):
         n = 0
     if n > 0:
-        return f"⚠ 有裁罰 {n} 筆"
+        return f"有裁罰 {n} 筆"
     if flag == "有":
-        return "⚠ 經標記有裁罰"
-    return "✓ 無裁罰紀錄"
+        return "經標記有裁罰"
+    return "無裁罰紀錄"
 
 
 def _penalty_color(park_id: str) -> str:
@@ -440,6 +786,9 @@ def _penalty_color(park_id: str) -> str:
     return "#5B9E7A"       # 安靜綠：無裁罰紀錄
 
 
+
+
+
 # ===========================================================================
 # 地圖 + 清單
 # 未搜尋：地圖佔滿整個寬度（更大更好看地圖）；引導文字置於地圖下方。
@@ -452,7 +801,24 @@ else:
     right = st.container()
 
 with left:
-    st.markdown("##### 　附近機構地圖")
+    if searched:
+        # 與右欄大數字焦點等高（96px），讓兩欄地圖／清單頂部對齊。
+        _home_label = html.escape(str(home.get("label", "") or "")[:36]) if home else ""
+        st.markdown(
+            "<div style='height:96px;box-sizing:border-box;display:flex;"
+            "flex-direction:column;justify-content:flex-end;padding-bottom:6px'>"
+            "<div style='font-family:var(--font-serif);font-weight:700;"
+            "font-size:1.15rem;color:var(--ink-strong)'>附近機構地圖</div>"
+            f"<div style='font-size:.78rem;color:var(--ink-dim);margin-top:4px'>"
+            f"以您輸入的位置為中心{('：' + _home_label) if _home_label else ''}</div>"
+            "</div>",
+            unsafe_allow_html=True)
+    else:
+        st.markdown(
+            "<div style='font-family:var(--font-serif);font-weight:700;"
+            "font-size:1.15rem;color:var(--ink-strong);margin-bottom:8px'>"
+            "先看看新北市的教保機構分布</div>",
+            unsafe_allow_html=True)
     if home:
         center = [home["lat"], home["lng"]]
         zoom = {0.5: 15, 1.0: 14, 2.0: 13, 5.0: 12}.get(radius_km, 13)
@@ -527,15 +893,14 @@ with left:
         legend_items_html = ""
         for color, label in _legend:
             legend_items_html += (
-                f"<span style='display:inline-flex;align-items:center;gap:6px;"
-                f"font-size:.8rem;color:#5C6670'>"
-                f"<span style='width:12px;height:12px;border-radius:50%;"
-                f"background:{color};border:2px solid #fff;"
-                f"box-shadow:0 0 0 1px #E4DED3'></span>{html.escape(label)}</span>")
+                f"<span class='legend-pill'>"
+                f"<span class='ldot' style='background:{color}'></span>"
+                f"{html.escape(label)}</span>")
         st.markdown(
-            "<div style='height:80px;box-sizing:border-box;padding-top:8px;overflow:hidden'>"
-            f"<div style='display:flex;flex-wrap:wrap;gap:14px'>{legend_items_html}</div>"
-            "<div style='font-size:.76rem;color:#8A8073;margin-top:6px'>"
+            "<div style='min-height:96px;box-sizing:border-box;padding-top:4px'>"
+            f"<div class='legend-row'>{legend_items_html}</div>"
+            "<div style='font-size:.76rem;color:var(--ink-faint);margin-top:8px;"
+            "line-height:1.6'>"
             "地圖標記顏色為公開裁罰狀態（與右側清單一致）；每間機構的輿情關注指數"
             "與新聞時間軸，會在您點入該機構時即時蒐集公開新聞後計算。</div>"
             "</div>",
@@ -561,53 +926,82 @@ with right:
         # 未搜尋：地圖已全寬、下方已有引導，右側不再重複顯示卡片，保持畫面乾淨。
         pass
     else:
-        _scope_txt = ("　".join(sel_dist) if sel_dist
-                      else f"{geo.format_distance(radius_km)}內")
-        # 右欄標題＋燈號說明合併為固定高度區塊（60px），與左欄一致以利底部對齊。
+        # 範圍描述：選了行政區用區名，否則用「N 公里內」。
+        if sel_dist:
+            _scope_txt = "、".join(sel_dist)
+            _scope_phrase = f"在您選的 {_scope_txt}"
+        else:
+            _scope_txt = f"{geo.format_distance(radius_km)}內"
+            _scope_phrase = f"在您家 {geo.format_distance(radius_km)}內"
+        # 大數字焦點：家長搜尋後最想知道「附近有幾間、我有多少選擇」，
+        # 用真實數字當第一視覺焦點，比裝飾色塊誠實也更有說服力。
         st.markdown(
-            "<div style='height:60px;box-sizing:border-box'>"
-            f"<div style='font-size:1.05rem;font-weight:700;color:#2C3A2E'>"
-            f"符合條件：{len(markers)} 間（{html.escape(_scope_txt)}）</div>"
-            "<div style='font-size:.76rem;color:#8A8073;margin-top:4px'>"
-            "清單燈號：<span style='color:#5B9E7A'>●</span> 無裁罰　"
-            "<span style='color:#D99A4E'>●</span> 有／經標記裁罰"
-            "（輿情關注度請點入機構查看）</div>"
+            "<div style='height:96px;box-sizing:border-box'>"
+            "<div class='count-focus'>"
+            f"<span class='count-num'>{len(markers)}</span>"
+            f"<span class='count-cap'><b>間教保機構</b><br>"
+            f"<span class='count-scope'>{html.escape(_scope_phrase)}"
+            f"，依距離由近到遠</span></span></div>"
+            "<div class='result-sub'>"
+            "<span class='dot-inline' style='background:#5B9E7A'></span>無裁罰紀錄　"
+            "<span class='dot-inline' style='background:#D99A4E'></span>有／經標記裁罰"
+            "</div>"
             "</div>",
             unsafe_allow_html=True)
 
         if not markers:
             st.info("這個範圍內沒有符合條件的機構，試著放大搜尋範圍或調整篩選。")
         else:
-            # 對齊左欄底部（地圖460＋圖例說明區）：右欄＝標題區＋容器。
-            # 容器高度經實測微調，使右欄底部齊平於左欄「地圖標記說明」文字底部。
+            # 對齊左欄底部：左欄＝地圖(460)＋圖例說明區(≈96含間距)；
+            # 右欄＝標題區(60)＋清單容器。將容器高度提高到 540，使右欄底部
+            # 往下延伸至與左欄「地圖標記說明」文字底部齊平。
             list_box = st.container(height=520)
             with list_box:
+                _selected_pid = str(st.session_state.get("selected_park_id") or "")
                 for m in markers[:80]:
-                    dist_txt = (f"・{geo.format_distance(m.distance_km)}"
-                                if m.distance_km is not None else "")
-                    # 清單燈號＝裁罰狀態顏色（與右側文字語意一致，非輿情關注度）。
+                    # 圓點＝識別色（與地圖標記一致）；狀態文字＝加深的 -text 版
+                    # （確保白/淺底可讀，達 WCAG AA）。icon/text 色分離。
                     _dot_color = _penalty_color(m.park_id)
-                    cols = st.columns([0.12, 0.88])
-                    with cols[0]:
-                        st.markdown(
-                            f"<div style='width:14px;height:14px;border-radius:50%;"
-                            f"background:{_dot_color};margin-top:6px;'></div>",
-                            unsafe_allow_html=True)
-                    with cols[1]:
-                        if st.button(f"{m.name}", key=f"pick_{m.park_id}",
-                                     use_container_width=True):
-                            st.session_state["selected_park_id"] = m.park_id
-                        # 清單即時可給的有用資訊＝公開裁罰狀態（不即時爬輿情，
-                        # 輿情於點入詳情頁時才即時查詢與計分）。
-                        _pstat = _penalty_status_short(m.park_id)
-                        st.caption(f"{m.ownership}・{m.district}{dist_txt}　{_pstat}")
+                    _has_pen = _dot_color == "#D99A4E"
+                    _text_color = "#9A5E14" if _has_pen else "#3A7555"
+                    _pstat = _penalty_status_short(m.park_id)
+                    _halo = ("rgba(217,154,78,.18)" if _has_pen
+                             else "rgba(91,158,122,.18)")
+                    # 距離錨點：拆成「數字＋單位」，數字用等寬大字，家長掃視比較用。
+                    if m.distance_km is not None:
+                        _dist_str = geo.format_distance(m.distance_km)
+                        _dnum, _, _dunit = _dist_str.partition(" ")
+                        _dist_html = (f"<span class='dnum'>{html.escape(_dnum)}</span>"
+                                      f"<span class='dunit'>{html.escape(_dunit)}</span>")
+                    else:
+                        _dist_html = "<span class='dnone'>未定位<br>距離</span>"
+                    _sel = str(m.park_id) == _selected_pid
+                    _active_cls = " is-active" if _sel else ""
+                    # 卡片：距離大數字錨點 + 名稱 + 類別/區 + 裁罰狀態圓點。
+                    st.markdown(
+                        f"<div class='inst-card{_active_cls}' style='--dot:{_dot_color}'>"
+                        f"<div class='inst-dist'>{_dist_html}</div>"
+                        f"<div class='inst-body'>"
+                        f"<div class='inst-name'>{html.escape(m.name)}</div>"
+                        f"<div class='inst-meta'>{html.escape(m.ownership)}"
+                        f"・{html.escape(m.district)}</div>"
+                        f"<div class='inst-status' style='color:{_text_color};"
+                        f"--sdot-halo:{_halo}'>"
+                        f"<span class='sdot' style='background:{_dot_color}'></span>"
+                        f"{html.escape(_pstat)}</div>"
+                        f"</div></div>",
+                        unsafe_allow_html=True)
+                    # 保留原有選取邏輯：以明確的行動按鈕觸發詳情，不動 session 行為。
+                    if st.button("查看公開資訊　›", key=f"pick_{m.park_id}",
+                                 use_container_width=True):
+                        st.session_state["selected_park_id"] = m.park_id
 
 
 # ===========================================================================
 # 機構詳情頁（含公開資訊 + 輿情時間軸 + 分級依據 + 申訴窗口）
 # ===========================================================================
-def _record_summary(row: dict) -> tuple[str, str]:
-    """產生每間機構的「綜合公開紀錄摘要」：(結論文字, 顏色)。
+def _record_summary(row: dict) -> tuple[str, str, str]:
+    """產生每間機構的「綜合公開紀錄摘要」：(結論文字, 識別色, 文字色)。
 
     以裁罰為主要依據（公開事實），三種狀態：
       - 有裁罰且有明細 → 中性提示筆數（暖琥珀，非警報紅）。
@@ -621,18 +1015,20 @@ def _record_summary(row: dict) -> tuple[str, str]:
         n = int(float(_pc)) if _pc is not None and not pd.isna(_pc) else None
     except (TypeError, ValueError):
         n = None
+    # 回傳 (結論文字, 識別色(border/標記), 文字色(達 AA))。
+    # 識別色維持語意 hex；文字色用加深版，確保標題文字在白底可讀。
     # 中間狀態：官方標記有裁罰，但無可對應之逐筆明細。
     if (n is None or n <= 0) and _flag == "有":
         return ("本園於公開資料中經標記有裁罰紀錄，惟逐筆明細比對中；"
                 "此非乾淨紀錄，建議家長逕向主管機關查詢確切內容。",
-                "#D99A4E")
+                "#D99A4E", "#9A5E14")
     if n is not None and n > 0:
         return (f"本園近年有 {n} 筆公開裁罰紀錄，詳見下方裁罰欄位；"
                 "裁罰為主管機關依法處分之公開事實，建議搭配園所說明一併了解。",
-                "#D99A4E")
+                "#D99A4E", "#9A5E14")
     return ("目前公開紀錄中並無不良事項（近年無裁罰紀錄）。"
             "以下為本園之公開資訊，建議家長仍以實地參訪作為主要參考。",
-            "#5B9E7A")
+            "#5B9E7A", "#3A7555")
 
 
 def render_disclosure(row: dict):
@@ -651,11 +1047,12 @@ def render_disclosure(row: dict):
         row["ownership"] = _ptype
 
     # 綜合公開紀錄摘要（每間都有明確結論，不留空白）。
-    _sum_txt, _sum_color = _record_summary(row)
+    # border 用識別色（語意）；標題文字用達 AA 的文字色。
+    _sum_txt, _sum_color, _sum_text_color = _record_summary(row)
     st.markdown(
         f"<div style='border-left:4px solid {_sum_color};background:#fff;"
         f"border:1px solid #ECE7DE;border-radius:8px;padding:12px 16px;"
-        f"margin:6px 0 12px'><b style='color:{_sum_color}'>綜合公開紀錄</b><br>"
+        f"margin:6px 0 12px'><b style='color:{_sum_text_color}'>綜合公開紀錄</b><br>"
         f"<span style='color:#42513F;font-size:.9rem'>{html.escape(_sum_txt)}</span></div>",
         unsafe_allow_html=True)
     field_sources: dict[str, SourceRef] = {

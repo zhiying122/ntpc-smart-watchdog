@@ -162,11 +162,48 @@ def test_fetch_json_prefer_cache(tmp_path, monkeypatch):
     assert fr.is_live is False
 
 
+def test_fetch_json_falls_back_to_snapshot_when_no_cache(tmp_path, monkeypatch):
+    """網路失敗且無本地 cache 時，退回版控 snapshot（GitHub Actions 產出）。"""
+    cache = str(tmp_path / "missing_cache.json")   # 不存在
+    snapshot = str(tmp_path / "snap.json")
+    with open(snapshot, "w", encoding="utf-8") as fh:
+        json.dump({"from": "snapshot"}, fh)
+
+    monkeypatch.setattr(ls, "_http_get_json",
+                        lambda *a, **k: (_ for _ in ()).throw(TimeoutError("逾時")))
+    fr = ls.fetch_json("http://x", cache, snapshot_path=snapshot)
+    assert fr.used_fallback is True
+    assert fr.data == {"from": "snapshot"}
+    assert fr.is_live is False
+
+
+def test_fetch_json_prefers_newer_of_cache_and_snapshot(tmp_path, monkeypatch):
+    """cache 與 snapshot 都有時，取檔案 mtime 較新的一份作為離線備援。"""
+    import os
+    import time
+    cache = str(tmp_path / "c.json")
+    snapshot = str(tmp_path / "s.json")
+    with open(cache, "w", encoding="utf-8") as fh:
+        json.dump({"src": "cache"}, fh)
+    time.sleep(0.02)
+    with open(snapshot, "w", encoding="utf-8") as fh:
+        json.dump({"src": "snapshot"}, fh)
+    # 讓 snapshot 的 mtime 明確比 cache 新。
+    now = time.time()
+    os.utime(cache, (now - 100, now - 100))
+    os.utime(snapshot, (now, now))
+
+    monkeypatch.setattr(ls, "_http_get_json",
+                        lambda *a, **k: (_ for _ in ()).throw(TimeoutError("逾時")))
+    fr = ls.fetch_json("http://x", cache, snapshot_path=snapshot)
+    assert fr.data == {"src": "snapshot"}  # 較新者勝出
+
+
 # ---------------------------------------------------------------------------
 # 完整載入 + 狀態旗標
 # ---------------------------------------------------------------------------
 def test_load_live_dataset_all_live(monkeypatch):
-    def _fake_fetch(url, cache, timeout=30, prefer_cache=False):
+    def _fake_fetch(url, cache, timeout=30, prefer_cache=False, **kwargs):
         data = _fake_geojson() if "preschool" in url else _fake_punish()
         return ls.FetchResult(data=data, is_live=True, fetched_at="now",
                               source_url=url)
@@ -179,7 +216,7 @@ def test_load_live_dataset_all_live(monkeypatch):
 
 
 def test_load_live_dataset_fallback_marks_not_live(monkeypatch):
-    def _fake_fetch(url, cache, timeout=30, prefer_cache=False):
+    def _fake_fetch(url, cache, timeout=30, prefer_cache=False, **kwargs):
         data = _fake_geojson() if "preschool" in url else _fake_punish()
         live = "preschool" not in url  # 機構源用備援
         return ls.FetchResult(data=data, is_live=live, used_fallback=not live,

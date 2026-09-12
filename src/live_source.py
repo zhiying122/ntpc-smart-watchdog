@@ -58,6 +58,14 @@ CACHE_DIR = os.path.join(_ROOT, "data", "cache")
 PRESCHOOLS_CACHE = os.path.join(CACHE_DIR, "preschools.json")
 PUNISH_CACHE = os.path.join(CACHE_DIR, "punish_all.json")
 
+# 定時快照（由 GitHub Actions 每日自動抓取並 commit 回 repo，納入版控）。
+# 與 data/cache（本地暫存、不進版控）語意區分：snapshots 是「線上部署也讀得到
+# 的最新版控備援」，確保即使部署環境即時抓網失敗，仍有近一天內的新鮮資料。
+# 讀取優先序：即時網路 → data/cache（若剛抓過）→ data/snapshots（版控備援）。
+SNAPSHOT_DIR = os.path.join(_ROOT, "data", "snapshots")
+PRESCHOOLS_SNAPSHOT = os.path.join(SNAPSHOT_DIR, "preschools.json")
+PUNISH_SNAPSHOT = os.path.join(SNAPSHOT_DIR, "punish_all.json")
+
 DEFAULT_TIMEOUT = 30  # 秒
 _TARGET_CITY = "新北市"
 
@@ -149,19 +157,46 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _best_offline(cache_path: str,
+                  snapshot_path: str | None) -> tuple[Any, str | None, str]:
+    """在本地快取與版控快照之間，挑「最新一份」可用資料作為離線備援。
+
+    回傳 (data, fetched_at ISO, 來源標記)；兩者皆無時回 (None, None, "")。
+    以檔案最後修改時間比較，較新者優先——確保線上部署即使沒有 data/cache，
+    也能用 GitHub Actions 每日更新、進了版控的 data/snapshots 快照。
+    """
+    cache_data, cache_mtime = _read_cache(cache_path)
+    snap_data, snap_mtime = (_read_cache(snapshot_path)
+                             if snapshot_path else (None, None))
+    if cache_data is not None and snap_data is not None:
+        # 兩者都有 → 取 mtime 較新的一份。
+        if (snap_mtime or "") > (cache_mtime or ""):
+            return snap_data, snap_mtime, "snapshot"
+        return cache_data, cache_mtime, "cache"
+    if snap_data is not None:
+        return snap_data, snap_mtime, "snapshot"
+    if cache_data is not None:
+        return cache_data, cache_mtime, "cache"
+    return None, None, ""
+
+
 def fetch_json(url: str, cache_path: str,
                timeout: int = DEFAULT_TIMEOUT,
-               prefer_cache: bool = False) -> FetchResult:
+               prefer_cache: bool = False,
+               snapshot_path: str | None = None) -> FetchResult:
     """抓取 JSON，快取優先／離線備援（政府級韌性）。
 
     流程：
-      - prefer_cache=True 且快取存在 → 直接用快取（離線 Demo 模式）。
+      - prefer_cache=True → 直接用最新的離線資料（cache 或版控 snapshot 取較新者）。
       - 否則嘗試即時抓取；成功 → 寫快取並回傳 is_live=True。
-      - 即時抓取失敗（無網路/逾時/來源異動）→ 退回快取，used_fallback=True，
-        並附 error；若連快取也無 → data=None（由上層決定退回內建靜態資料）。
+      - 即時抓取失敗（無網路/逾時/來源異動）→ 退回最新離線資料（cache 或
+        由 GitHub Actions 每日更新、進版控的 snapshot），used_fallback=True，
+        並附 error；若連離線資料都無 → data=None（由上層決定退回內建靜態資料）。
+
+    snapshot_path 為 None 時，行為與原本「僅 cache 備援」完全一致（向後相容）。
     """
     if prefer_cache:
-        data, mtime = _read_cache(cache_path)
+        data, mtime, _src = _best_offline(cache_path, snapshot_path)
         if data is not None:
             return FetchResult(data=data, is_live=False, fetched_at=mtime,
                                source_url=url, used_fallback=False)
@@ -172,14 +207,14 @@ def fetch_json(url: str, cache_path: str,
         return FetchResult(data=data, is_live=True, fetched_at=_now_iso(),
                            source_url=url, used_fallback=False)
     except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
-        data, mtime = _read_cache(cache_path)
+        data, mtime, _src = _best_offline(cache_path, snapshot_path)
         if data is not None:
             return FetchResult(data=data, is_live=False, fetched_at=mtime,
                                source_url=url, used_fallback=True,
-                               error=f"即時抓取失敗，已退回離線快取：{exc}")
+                               error=f"即時抓取失敗，已退回離線資料（{_src}）：{exc}")
         return FetchResult(data=None, is_live=False, fetched_at=None,
                            source_url=url, used_fallback=True,
-                           error=f"即時抓取失敗且無可用快取：{exc}")
+                           error=f"即時抓取失敗且無可用離線資料：{exc}")
 
 
 # --------------------------------------------------------------------------
@@ -307,9 +342,11 @@ def load_live_dataset(city: str = _TARGET_CITY,
     退回快取，確保 Demo 不中斷。
     """
     ins_status = fetch_json(PRESCHOOLS_URL, PRESCHOOLS_CACHE,
-                            timeout=timeout, prefer_cache=prefer_cache)
+                            timeout=timeout, prefer_cache=prefer_cache,
+                            snapshot_path=PRESCHOOLS_SNAPSHOT)
     pen_status = fetch_json(PUNISH_URL, PUNISH_CACHE,
-                            timeout=timeout, prefer_cache=prefer_cache)
+                            timeout=timeout, prefer_cache=prefer_cache,
+                            snapshot_path=PUNISH_SNAPSHOT)
     institutions = parse_preschools(ins_status.data, city=city) if ins_status.ok else []
     penalties = parse_penalties(pen_status.data) if pen_status.ok else []
     return LiveDataset(

@@ -1,0 +1,50 @@
+name: 每日更新開放資料快照
+
+# 自動更新家長公眾查詢網（安心找幼兒園）所依賴的官方開放資料：
+# 每天抓取全國教保資訊網（經 g0v 整理）的幼兒園基本資料與裁罰紀錄，
+# 寫入 data/snapshots/ 並 commit 回 repo，讓線上部署即使即時抓網失敗，
+# 也永遠有近一天內的新鮮備援資料。
+
+on:
+  schedule:
+    # UTC 22:00 = 台灣時間隔日清晨 06:00，每日更新一次。
+    - cron: "0 22 * * *"
+  workflow_dispatch: {}   # 允許在 Actions 頁面手動觸發
+
+# 僅授予寫入 repo 內容的最小權限（供 commit 快照）。
+permissions:
+  contents: write
+
+concurrency:
+  group: update-snapshots
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取出程式碼
+        uses: actions/checkout@v4
+
+      - name: 設定 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 抓取並更新快照
+        run: python scripts/update_snapshots.py
+
+      - name: 驗證快照健全
+        run: python scripts/update_snapshots.py --check
+
+      - name: 若有變動則 commit 回 repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/snapshots/
+          if git diff --cached --quiet; then
+            echo "快照無變動，略過 commit。"
+          else
+            git commit -m "chore(data): 每日更新開放資料快照 [skip ci]"
+            git push
+          fi
