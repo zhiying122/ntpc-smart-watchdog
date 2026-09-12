@@ -15,6 +15,21 @@ import time
 import pandas as pd
 import streamlit as st
 
+# 載入專案根目錄的 .env（AWS 憑證 / Bedrock 設定）。
+# 程式一律用 os.environ 讀值（禁止寫死金鑰）；此處僅負責把 .env 匯入環境。
+# 用 try/except 包住：未安裝 python-dotenv 或無 .env 時，不影響 app 啟動
+# （Bedrock 未設定時 src/ai_report.py 會自動退化為 fallback）。
+try:
+    from dotenv import load_dotenv
+
+    _ENV_PATH = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        ".env",
+    )
+    load_dotenv(_ENV_PATH)
+except Exception:  # noqa: BLE001 - dotenv 缺失不應阻擋啟動
+    pass
+
 # RBAC：角色感知導覽（第一層授權）與身分驗證守衛（第二層授權）。
 # 這兩個模組為 app/lib 內的同儕模組；common 只在需要時使用其純函式與守衛。
 from lib import auth  # noqa: E402
@@ -616,6 +631,7 @@ NAV_ALL = NAV + [
     ("5_dispatch",    "派工決策台",       "case",      "pages/5_dispatch.py"),
     ("7_integration", "資料整合中心",     "dashboard", "pages/7_integration.py"),
     ("6_governance",  "資料治理權限矩陣", "shield",    "pages/6_governance.py"),
+    ("9_public_preview", "民眾端預覽",    "check",     "pages/9_public_preview.py"),
     ("8_health",      "系統健康檢查",     "shield",    "pages/8_health.py"),
 ]
 # NAV_ALL 可能因 1_case 已在 NAV（否）而重複；以 key 去重並保留首次出現順序。
