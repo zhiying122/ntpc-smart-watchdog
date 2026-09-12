@@ -89,9 +89,14 @@ def test_authorize_dataframe_parent_drops_all_risk_fields():
 def test_authorize_dataframe_parent_keeps_only_public_fields():
     df = _sample_df()
     out = perm.authorize_dataframe(df, PARENT)
+    # 家長公開欄位：含裁罰「事實」欄位（次數/原因/類別）——裁罰紀錄為公開揭露
+    # 資訊，家長本得知悉；但不含任何內部風險分數（score_penalty 仍被擋除）。
     expected_public = {"park_id", "park_name", "park_type", "district",
-                       "address", "tuition_actual", "eval_grade", "year"}
+                       "address", "tuition_actual", "eval_grade", "year",
+                       "penalty_count"}
     assert set(out.columns) == expected_public
+    # 確認裁罰「評分」（風險分項）仍不外洩，只給裁罰「事實」。
+    assert "score_penalty" not in out.columns
 
 
 def test_authorize_dataframe_parent_does_not_mutate_original():
