@@ -10,6 +10,7 @@ Border 優先於 Shadow、小圓角、8px spacing、等寬數字。
 """
 import html
 import os
+import re
 import time
 
 import pandas as pd
@@ -1283,6 +1284,40 @@ def risk_factors(row):
     return len(factors)
 
 
+_DISTRICT_RE = re.compile(r"(?:新北市)?([\u4e00-\u9fff]{1,3}區)")
+
+
+def _fill_district(df):
+    """補齊缺漏的行政區，避免表格/圖表出現 nan。
+
+    多數列的 district 已由資料管線填妥；少數（如國小附設幼兒園、部分非營利園）
+    在 latest 檔缺值。依序以下列來源回填，全程可解釋、不臆造：
+      1. 全市名冊 kindergartens_roster.csv（依 park_id 對應官方行政區）。
+      2. 機構名稱中內含的「XX區」字樣（如「新北市板橋區板橋國小附幼」→ 板橋區）。
+    仍無法判定者填「未分類」，讓畫面明確而非顯示 nan。
+    """
+    if "district" not in df.columns:
+        return df
+    df = df.copy()
+
+    roster = load_roster()
+    if roster is not None and "park_id" in df.columns and "park_id" in roster.columns:
+        ref = (roster.dropna(subset=["district"])
+               .drop_duplicates("park_id")
+               .set_index("park_id")["district"])
+        missing = df["district"].isna() | (df["district"].astype(str).str.strip() == "")
+        df.loc[missing, "district"] = df.loc[missing, "park_id"].map(ref)
+
+    def _from_name(row):
+        if pd.notna(row["district"]) and str(row["district"]).strip():
+            return row["district"]
+        m = _DISTRICT_RE.search(str(row.get("park_name", "")))
+        return m.group(1) if m else "未分類"
+
+    df["district"] = df.apply(_from_name, axis=1)
+    return df
+
+
 def require_data():
     df = load_latest()
     if df is None or len(df) == 0:
@@ -1293,7 +1328,7 @@ def require_data():
             "- 或由風險引擎產出真資料：python -m src.risk_score"
         )
         st.stop()
-    return df
+    return _fill_district(df)
 
 
 # ===========================================================================
