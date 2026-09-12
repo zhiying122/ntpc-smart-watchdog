@@ -222,15 +222,15 @@ with col_radar:
                             tickfont=dict(size=10, color=common.INK_MUTED)),
             angularaxis=dict(gridcolor=common.BORDER,
                              tickfont=dict(size=12, color=common.INK)),
-            bgcolor="#FFFFFF",
+            bgcolor="rgba(0,0,0,0)",
         ),
         showlegend=False,
         title=dict(text="四分項風險組成（0-100，越外圈風險越高）",
                    font=dict(size=13, color=common.INK)),
         font=dict(family="Inter, Noto Sans TC, Microsoft JhengHei"),
-        height=380, margin=dict(l=50, r=50, t=50, b=36), paper_bgcolor="#FFFFFF",
+        height=380, margin=dict(l=50, r=50, t=50, b=40), paper_bgcolor="rgba(0,0,0,0)",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 with col_action:
     # 分項加權貢獻表：貢獻加總 == 總分（R5.2）。
@@ -274,13 +274,15 @@ if len(tl_vals) >= 1:
             name="變化點", text=cp_text, hovertemplate="%{text}<extra></extra>",
         ))
     tfig.update_layout(
-        height=300, margin=dict(l=40, r=20, t=20, b=36),
-        paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
+        height=300, margin=dict(l=48, r=24, t=24, b=40),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        # 明確給空字串 title：避免部分 Plotly/Streamlit 版本把未設定的 title 渲染成 "undefined"。
+        title=dict(text="", font=dict(size=13, color=common.INK)),
         yaxis=dict(title="風險分", range=[0, 100], gridcolor=common.BORDER),
         xaxis=dict(title="年度"), showlegend=True,
         font=dict(family="Inter, Noto Sans TC, Microsoft JhengHei"),
     )
-    st.plotly_chart(tfig, use_container_width=True)
+    st.plotly_chart(tfig, use_container_width=True, config={"displayModeBar": False})
     if timeline_view.change_points:
         for cp in timeline_view.change_points:
             st.caption(f"變化點：{cp.trigger}")

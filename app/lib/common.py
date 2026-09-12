@@ -273,7 +273,7 @@ def load_moe_yearly():
 
 
 def city_trend_chart():
-    """全市幼兒園逐年概況趨勢：園數 / 幼生數 / 教師數（雙軸）。
+    """全市幼兒園逐年概況趨勢：園數 / 幼生數 / 教師數（雙軸趨勢折線）。
 
     資料來源為教育部統計處官方開放資料（全市總量，非單園）。展現宏觀趨勢與
     「系統可持續接入官方開放資料」的可規模化性，與單園鑑識分析互補。
@@ -288,32 +288,43 @@ def city_trend_chart():
 
     years = [f"{int(y)}" for y in d["學年度"]]
     fig = make_subplots(specs=[[{"secondary_y": True}]])
-    # 幼生數（長條，右軸）：量體大，用長條表達規模。
+
+    # 1. 幼生數（面積折線，右軸）：以沉穩藍與柔和漸層呈現總體規模趨勢，避免巨大長條遮蔽
     if "幼生總數" in d.columns:
-        fig.add_trace(go.Bar(
-            x=years, y=d["幼生總數"], name="幼生總數",
-            marker=dict(color=PRIMARY_SOFT, line=dict(color=PRIMARY, width=1)),
+        fig.add_trace(go.Scatter(
+            x=years, y=d["幼生總數"], name="幼生總數（人）", mode="lines+markers",
+            line=dict(color=PRIMARY, width=3),
+            marker=dict(size=7, color=PRIMARY),
+            fill="tozeroy", fillcolor="rgba(47, 109, 181, 0.08)",
             hovertemplate="%{x} 學年｜幼生 <b>%{y:,}</b> 人<extra></extra>",
         ), secondary_y=True)
-    # 園數（折線，左軸）
-    if "園數總數" in d.columns:
-        fig.add_trace(go.Scatter(
-            x=years, y=d["園數總數"], name="園數總數", mode="lines+markers",
-            line=dict(color=INK, width=2.5), marker=dict(size=7, color=INK),
-            hovertemplate="%{x} 學年｜園數 <b>%{y:,}</b> 間<extra></extra>",
-        ), secondary_y=False)
-    # 教師數（折線，左軸）
+
+    # 2. 教師數（折線，左軸）：綠色折線標示師資走勢
     if "教師總數" in d.columns:
         fig.add_trace(go.Scatter(
-            x=years, y=d["教師總數"], name="教師總數", mode="lines+markers",
-            line=dict(color=RISK_BAR["low"], width=2, dash="dot"),
+            x=years, y=d["教師總數"], name="教師總數（人）", mode="lines+markers",
+            line=dict(color=RISK_BAR["low"], width=2.5, dash="dash"),
             marker=dict(size=6, color=RISK_BAR["low"]),
             hovertemplate="%{x} 學年｜教師 <b>%{y:,}</b> 人<extra></extra>",
         ), secondary_y=False)
-    fig.update_layout(barmode="group")
-    _plotly_layout(fig, height=320)
-    fig.update_yaxes(title="園數 / 教師數", secondary_y=False)
-    fig.update_yaxes(title="幼生數", secondary_y=True)
+
+    # 3. 園數（折線，左軸）：深色實線標示立案機構總數
+    if "園數總數" in d.columns:
+        fig.add_trace(go.Scatter(
+            x=years, y=d["園數總數"], name="園數總數（間）", mode="lines+markers",
+            line=dict(color=INK, width=2.5),
+            marker=dict(size=7, color=INK),
+            hovertemplate="%{x} 學年｜園數 <b>%{y:,}</b> 間<extra></extra>",
+        ), secondary_y=False)
+
+    _plotly_layout(fig, height=330)
+    fig.update_layout(
+        margin=dict(l=54, r=54, t=44, b=46),
+        legend=dict(orientation="h", yanchor="bottom", y=1.03, xanchor="left", x=0,
+                    font=dict(size=11, color=INK_2)),
+    )
+    fig.update_yaxes(title="園數（間）/ 教師數（人）", secondary_y=False, range=[0, 2600])
+    fig.update_yaxes(title="幼生數（人）", secondary_y=True, range=[0, 100000])
     fig.update_xaxes(title="學年度")
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
@@ -599,8 +610,23 @@ def _css():
     [data-testid="stExpander"] summary {{ font-weight:500; }}
     [data-testid="stAlert"] {{ border-radius:var(--radius); }}
     [data-testid="stPlotlyChart"], [data-testid="stVegaLiteChart"] {{
-      border:1px solid var(--border); border-radius:var(--radius); background:var(--surface);
-      padding:10px; box-shadow:0 1px 2px rgba(28,37,48,.04); }}
+      border:1px solid var(--border) !important; border-radius:var(--radius) !important;
+      background:var(--surface) !important; padding:0 !important;
+      box-shadow:0 1px 2px rgba(28,37,48,.04) !important;
+      overflow:hidden !important; box-sizing:border-box !important; }}
+    [data-testid="stPlotlyChart"] *, [data-testid="stVegaLiteChart"] * {{
+      box-sizing:border-box; }}
+    [data-testid="stPlotlyChart"] > div,
+    [data-testid="stPlotlyChart"] .js-plotly-plot,
+    [data-testid="stPlotlyChart"] .plot-container,
+    [data-testid="stPlotlyChart"] .svg-container {{
+      border-radius:var(--radius) !important; overflow:hidden !important; }}
+    [data-testid="stPlotlyChart"] .modebar-container {{
+      display:none !important; }}
+    iframe[title="streamlit_folium.st_folium"] {{
+      border:1px solid var(--border) !important; border-radius:var(--radius) !important;
+      overflow:hidden !important; box-shadow:0 1px 2px rgba(28,37,48,.04) !important;
+      box-sizing:border-box !important; }}
     .stTabs [data-baseweb="tab-list"] {{ gap:2px; border-bottom:1px solid var(--border); }}
     .stTabs [data-baseweb="tab"] {{ font-size:.88rem; color:var(--ink2); padding:8px 14px; }}
     .stTabs [aria-selected="true"] {{ color:var(--primary) !important; }}
@@ -658,7 +684,7 @@ def _css():
       box-shadow:0 1px 2px rgba(28,37,48,.04); }}
 
     /* ===== 企業資料表：固定列高、細框、tabular ===== */
-    .sw-table {{ width:100%; border-collapse:collapse; background:var(--surface);
+    .sw-table {{ width:100%; border-collapse:separate; border-spacing:0; background:var(--surface);
       border:1px solid var(--border); border-radius:var(--radius); overflow:hidden;
       font-variant-numeric:tabular-nums; table-layout:auto;
       box-shadow:0 1px 2px rgba(28,37,48,.04); }}
@@ -1266,20 +1292,25 @@ def risk_factors(row):
 
     html_rows = ""
     for i, (name, why, evidence) in enumerate(factors, start=1):
+        border_top = f"border-top:1px solid {BORDER};" if i > 1 else ""
         html_rows += (
-            f"<div style='display:flex;gap:14px;padding:12px 0;"
-            f"border-top:1px solid {BORDER};'>"
-            f"<div style='flex:0 0 26px;height:26px;border-radius:5px;background:{SURFACE_SUNK};"
+            f"<div style='display:flex;align-items:center;justify-content:space-between;"
+            f"gap:20px;padding:15px 0;{border_top}'>"
+            f"<div style='display:flex;align-items:flex-start;gap:14px;flex:1;'>"
+            f"<div style='flex:0 0 28px;height:28px;border-radius:6px;background:{SURFACE_SUNK};"
             f"color:{INK_2};font-weight:700;font-size:.82rem;display:flex;align-items:center;"
-            f"justify-content:center;'>{i:02d}</div>"
-            f"<div style='flex:1;'>"
-            f"<div style='font-weight:600;color:{INK};font-size:.9rem;'>{html.escape(name)}</div>"
-            f"<div style='color:{INK_2};font-size:.83rem;margin-top:2px;'>{html.escape(why)}</div>"
-            f"<div style='color:{INK_MUTED};font-size:.76rem;margin-top:4px;'>"
-            f"{icon('check', 13, INK_MUTED)} 證據：{html.escape(evidence)}</div>"
+            f"justify-content:center;margin-top:1px;'>{i:02d}</div>"
+            f"<div>"
+            f"<div style='font-weight:600;color:{INK};font-size:.92rem;'>{html.escape(name)}</div>"
+            f"<div style='color:{INK_2};font-size:.84rem;margin-top:2px;line-height:1.5;'>{html.escape(why)}</div>"
             f"</div></div>"
+            f"<div style='flex:0 0 auto;background:{SURFACE_ALT};border:1px solid {BORDER};"
+            f"border-radius:20px;padding:6px 14px;color:{INK};font-size:.82rem;"
+            f"display:flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums;'>"
+            f"<span style='color:{PRIMARY};font-weight:700;'>✓</span> 證據：{html.escape(evidence)}</div>"
+            f"</div>"
         )
-    st.markdown(f"<div class='sw-panel' style='padding-top:2px;'>{html_rows}</div>",
+    st.markdown(f"<div class='sw-panel' style='padding:4px 20px;'>{html_rows}</div>",
                 unsafe_allow_html=True)
     return len(factors)
 
@@ -1633,23 +1664,26 @@ _PLOTLY_FONT = "Inter, Noto Sans TC, Microsoft JhengHei"
 
 
 def _plotly_layout(fig, height=300, title=None):
-    """套用統一的中性專業版面（白底、細格線、無圖例外框）。"""
+    """套用統一的中性專業版面（透明底、細格線、無圖例外框、自適應卡片）。"""
+    has_legend = getattr(fig.layout, "showlegend", None) is not False
     fig.update_layout(
         height=height,
-        margin=dict(l=48, r=24, t=40 if title else 16, b=36),
-        paper_bgcolor="#FFFFFF",
-        plot_bgcolor="#FFFFFF",
+        margin=dict(l=54, r=28, t=44 if (title or has_legend) else 20, b=46),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family=_PLOTLY_FONT, size=12, color=INK),
-        title=dict(text=title or "", font=dict(size=13, color=INK)) if title else None,
+        # title 永遠給 dict（未傳時 text=""）：避免部分 Plotly/Streamlit 版本把
+        # title=None 渲染成字面 "undefined"（曾出現在全市趨勢圖左上角）。
+        title=dict(text=title or "", font=dict(size=13, color=INK)),
         hoverlabel=dict(bgcolor="#FFFFFF", bordercolor=BORDER,
                         font=dict(family=_PLOTLY_FONT, size=12, color=INK)),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
                     font=dict(size=11, color=INK_2)),
     )
     fig.update_xaxes(gridcolor=SURFACE_SUNK, linecolor=BORDER, zeroline=False,
-                     tickfont=dict(size=11, color=INK_MUTED))
+                     tickfont=dict(size=11, color=INK_MUTED), automargin=True)
     fig.update_yaxes(gridcolor=SURFACE_SUNK, linecolor=BORDER, zeroline=False,
-                     tickfont=dict(size=11, color=INK_MUTED))
+                     tickfont=dict(size=11, color=INK_MUTED), automargin=True)
     return fig
 
 
@@ -1673,8 +1707,9 @@ def risk_distribution_interactive(counts_by_level, total):
     ))
     fig.update_layout(showlegend=False)
     _plotly_layout(fig, height=220)
-    fig.update_xaxes(title=None, range=[0, max(ns) * 1.25 if ns and max(ns) else 1])
-    fig.update_yaxes(autorange="reversed")
+    fig.update_layout(margin=dict(l=54, r=32, t=18, b=38))
+    fig.update_xaxes(title=None, range=[0, max(ns) * 1.35 if ns and max(ns) else 1], automargin=True)
+    fig.update_yaxes(autorange="reversed", automargin=True)
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 
@@ -1711,7 +1746,9 @@ def risk_composition_by_district(df, top_n=12):
         ))
     fig.update_layout(barmode="stack")
     _plotly_layout(fig, height=320)
-    fig.update_yaxes(title="平均風險分（分項貢獻堆疊）")
+    fig.update_layout(margin=dict(l=54, r=28, t=44, b=48))
+    fig.update_yaxes(title="平均風險分（分項貢獻堆疊）", automargin=True)
+    fig.update_xaxes(automargin=True)
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 
@@ -1754,8 +1791,10 @@ def risk_trend_chart(full_df, park_name):
         ), secondary_y=True)
     fig.update_layout(barmode="stack")
     _plotly_layout(fig, height=340)
-    fig.update_yaxes(title="分項貢獻", secondary_y=False)
-    fig.update_yaxes(title="總風險分", secondary_y=True, range=[0, 100])
+    fig.update_layout(margin=dict(l=54, r=54, t=44, b=48))
+    fig.update_yaxes(title="分項貢獻", secondary_y=False, automargin=True)
+    fig.update_yaxes(title="總風險分", secondary_y=True, range=[0, 100], automargin=True)
+    fig.update_xaxes(automargin=True)
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 
@@ -1813,8 +1852,10 @@ def validation_panel(df):
     fig.update_layout(showlegend=False)
     _plotly_layout(fig, height=280,
                    title="系統判定高風險分組 vs 對照組：官方裁罰率對比")
+    fig.update_layout(margin=dict(l=54, r=32, t=44, b=46))
     fig.update_yaxes(title="曾被官方裁罰的園占比 (%)",
-                     range=[0, max(rates) * 1.3 if max(rates) else 1])
+                     range=[0, max(rates) * 1.3 if max(rates) else 1], automargin=True)
+    fig.update_xaxes(automargin=True)
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
     # ---- 結論與權重依據 ----

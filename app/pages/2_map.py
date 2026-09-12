@@ -28,9 +28,16 @@ common.setup_page(
 
 # 資料授權層：政府為全欄位可見（含座標與風險分），仍走一致流程。
 df = permissions.authorize_dataframe(common.require_data(), permissions.ROLE_GOV)
+districts = sorted(df["district"].dropna().unique().tolist())
 
 # ---------- 篩選 ----------
-col_a, col_b = st.columns([3, 1])
+col_a, col_b = st.columns([1.6, 1.2], gap="large")
+with col_a:
+    sel_districts = st.multiselect(
+        "行政區聚焦（可多選，未選＝全市全區）", districts, default=[],
+        help="選擇行政區以聚焦地圖視野並過濾轄內機構與建議巡查路線",
+    )
+    st.caption("💡 提示：可選取單一或多個行政區（如「三芝區」、「板橋區」），地圖將自動聚焦轄區並即時重算該區稽查路線。")
 with col_b:
     show_levels = st.pills("顯示風險等級", ["高", "中", "低"],
                            selection_mode="multi", default=["高", "中", "低"])
@@ -41,6 +48,8 @@ with col_b:
                                    "財務資料待接入），展現全市涵蓋與架構可規模化")
 
 geo = df[df["risk_level"].isin(show_levels)].dropna(subset=["lat", "lng"]).copy()
+if sel_districts:
+    geo = geo[geo["district"].isin(sel_districts)]
 n_total = df.dropna(subset=["lat", "lng"]).shape[0]
 n_high_all = int((df["risk_level"] == "高").sum())
 
@@ -50,6 +59,8 @@ roster_only = None
 if roster is not None:
     roster_only = roster[roster["data_status"] == "roster_only"].dropna(
         subset=["lat", "lng"]).copy()
+    if sel_districts:
+        roster_only = roster_only[roster_only["district"].isin(sel_districts)]
 
 # 全市查有裁罰紀錄機構數（真實裁罰圖層）。
 _pen_df = common.load_penalty()
@@ -84,8 +95,14 @@ st.caption(
 )
 
 # ---------- 建立地圖 ----------
-center = [geo["lat"].mean(), geo["lng"].mean()]
-fmap = folium.Map(location=center, zoom_start=11, tiles="OpenStreetMap",
+if len(geo) > 0:
+    center = [geo["lat"].mean(), geo["lng"].mean()]
+    zoom_start = 13 if sel_districts else 11
+else:
+    center = [df["lat"].dropna().mean(), df["lng"].dropna().mean()]
+    zoom_start = 11
+
+fmap = folium.Map(location=center, zoom_start=zoom_start, tiles="OpenStreetMap",
                   control_scale=True)
 
 # ---------- 全市納管機構（未評分）灰點圖層：展現全市涵蓋 ----------
