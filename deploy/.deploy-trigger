@@ -1,0 +1,3 @@
+last-manual-deploy: 2026-09-13
+reason: 同步最新 main 至 EC2（輿情權重調整為 20/35/25/20）
+target: watchdog-gov (8601), watchdog-public (8602)
