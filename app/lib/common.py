@@ -138,18 +138,29 @@ NAV = [
 ]
 
 # ---------------------------------------------------------------------------
-# 線性 SVG 圖示（單一風格，stroke 一致；角色是辨識非裝飾）
+# 線性 SVG 圖示（lucide 語意對齊；stroke 一致；角色是辨識非裝飾）
 # ---------------------------------------------------------------------------
 _ICON = {
+    # LayoutDashboard
     "dashboard": "<rect x='3' y='3' width='7' height='9' rx='1'/><rect x='14' y='3' width='7' height='5' rx='1'/><rect x='14' y='12' width='7' height='9' rx='1'/><rect x='3' y='16' width='7' height='5' rx='1'/>",
-    "case": "<path d='M9 3h6l1 3H8z'/><rect x='4' y='6' width='16' height='15' rx='2'/><path d='M8 11h8M8 15h5'/>",
-    "map": "<path d='M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z'/><path d='M9 4v14M15 6v14'/>",
-    "ai": "<circle cx='12' cy='12' r='8'/><path d='M12 8v4l3 2'/>",
-    "sentiment": "<path d='M4 5h16v11H8l-4 4z'/><path d='M9 10h.01M15 10h.01M9 13c1 1 5 1 6 0'/>",
-    "shield": "<path d='M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z'/>",
-    "clock": "<circle cx='12' cy='12' r='9'/><path d='M12 7v5l3 2'/>",
+    # Search
+    "case": "<circle cx='11' cy='11' r='7'/><path d='m20 20-3.5-3.5'/>",
+    # MapPin
+    "map": "<path d='M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z'/><circle cx='12' cy='10' r='2.5'/>",
+    # Sparkles
+    "ai": "<path d='M12 3v3M12 18v3M3 12h3M18 12h3'/><path d='m6.5 6.5 2 2M15.5 15.5l2 2M17.5 6.5l-2 2M8.5 15.5l-2 2'/><circle cx='12' cy='12' r='3'/>",
+    # MessageSquare
+    "sentiment": "<path d='M4 5h16v11H8l-4 4z'/>",
+    # Shield / ShieldCheck
+    "shield": "<path d='M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z'/><path d='m9 12 2 2 4-4'/>",
+    # CalendarClock
+    "clock": "<rect x='4' y='5' width='16' height='15' rx='2'/><path d='M8 3v4M16 3v4M4 10h16'/><circle cx='15' cy='15' r='3'/><path d='M15 14v1.5l1 1'/>",
     "alert": "<path d='M12 3 2 20h20z'/><path d='M12 9v5M12 17h.01'/>",
     "check": "<circle cx='12' cy='12' r='9'/><path d='m8 12 3 3 5-6'/>",
+    # Database
+    "database": "<ellipse cx='12' cy='6' rx='7' ry='3'/><path d='M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6'/><path d='M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6'/>",
+    # Activity
+    "activity": "<path d='M3 12h4l2.5-7L14 19l2.5-7H21'/>",
 }
 
 
@@ -157,7 +168,7 @@ def icon(name, size=16, color="currentColor", stroke=1.6):
     body = _ICON.get(name, "")
     return (f"<svg width='{size}' height='{size}' viewBox='0 0 24 24' fill='none' "
             f"stroke='{color}' stroke-width='{stroke}' stroke-linecap='round' "
-            f"stroke-linejoin='round' style='vertical-align:middle;'>{body}</svg>")
+            f"stroke-linejoin='round' style='vertical-align:middle;flex:0 0 {size}px;'>{body}</svg>")
 
 
 # ===========================================================================
@@ -473,15 +484,23 @@ def _css():
     [data-testid="stSidebar"] > div:first-child {{ display:flex; flex-direction:column; height:100%; }}
     [data-testid="stSidebar"] * {{ color:{SIDEBAR_INK}; }}
     [data-testid="stSidebarNav"] {{ display:none !important; }}
-    /* 清掉側欄容器與內容區的頂部預設留白 */
-    [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {{ padding:0 !important; }}
+    /* 清掉側欄容器與內容區的頂部預設留白（Streamlit 1.63 DOM） */
+    [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {{
+      padding:0 !important; margin:0 !important; }}
+    [data-testid="stSidebar"] [data-testid="stSidebarContent"] {{
+      padding:0 !important; gap:0 !important; position:relative !important; }}
     [data-testid="stSidebar"] > div:first-child {{ padding-top:0 !important; }}
-    /* Sidebar header：保留一列高度容納「收合按鈕（»）」，按鈕靠右，
-       不再壓成 0，否則按鈕會浮到品牌區、與 logo 重疊。 */
-    [data-testid="stSidebar"] [data-testid="stSidebarHeader"] {{
-      height:auto !important; min-height:0 !important;
-      padding:6px 8px 0 !important; display:flex; justify-content:flex-end; align-items:center;
-      background:transparent; }}
+    /* Sidebar header：Streamlit 預設會留一列收合鈕高度，造成 Fiscalint 上方大空白。
+       以 absolute 脫離文件流，品牌區即可貼頂；收合鈕改疊在品牌區右上。 */
+    [data-testid="stSidebar"] [data-testid="stSidebarHeader"],
+    section[data-testid="stSidebar"] [data-testid="stSidebarHeader"] {{
+      position:absolute !important; top:0; right:0; left:auto;
+      width:40px !important; height:36px !important; min-height:0 !important;
+      padding:0 !important; margin:0 !important; z-index:30;
+      background:transparent !important; border:none !important;
+      display:flex !important; justify-content:flex-end; align-items:flex-start; }}
+    [data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] {{
+      position:static !important; margin:6px 8px 0 0 !important; }}
     /* 收合按鈕：融入深色側欄，低調不搶眼 */
     [data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button,
     [data-testid="stSidebar"] [data-testid="stBaseButton-headerNoPadding"] {{
@@ -489,81 +508,127 @@ def _css():
     [data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button:hover {{
       color:#F1F4F7 !important; background:rgba(255,255,255,.06) !important; }}
     [data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] svg {{ fill:currentColor !important; }}
-    section[data-testid="stSidebar"] .block-container {{ padding-top:0 !important; }}
-    /* 品牌區：header 之下，頂部只留少量間距（header 已佔一列） */
-    .sw-brand {{ padding:var(--s2) var(--s4) var(--s4); border-bottom:1px solid rgba(255,255,255,.08); }}
-    .sw-brand .logo {{ display:flex; align-items:center; gap:var(--s2); }}
-    .sw-brand .name {{ font-size:1.18rem; font-weight:700; color:#F1F4F7; letter-spacing:.03em;
-      line-height:1; }}
-    .sw-brand .tag {{ color:{SIDEBAR_INK_DIM}; font-size:.72rem; margin-top:8px;
-      letter-spacing:.02em; line-height:1.4; }}
-    .sw-nav {{ padding:var(--s3) var(--s2); }}
-    /* 導覽項目：完全等高、icon 固定寬對齊、文字 baseline 一致 */
-    .sw-nav a {{ display:flex; align-items:center; gap:var(--s3); height:38px; padding:0 var(--s3);
-      border-radius:var(--radius-sm); color:{SIDEBAR_INK}; font-size:.88rem; text-decoration:none;
-      margin-bottom:2px; border-left:2px solid transparent; transition:background .16s ease; }}
-    .sw-nav a:hover {{ background:rgba(255,255,255,.06); color:#F1F4F7; }}
-    .sw-nav a.active {{ background:{SIDEBAR_ACTIVE}; color:#fff; border-left:2px solid {PRIMARY}; }}
-    .sw-nav a svg {{ opacity:.85; flex:0 0 18px; width:18px; }}
-    .sw-nav a span {{ line-height:1; }}
+    section[data-testid="stSidebar"] .block-container {{ padding-top:0 !important; padding-left:0 !important; padding-right:0 !important; }}
 
-    /* ===== 原生 st.page_link 導覽（單一導覽來源）：外觀貼齊 .sw-nav a ===== */
-    /* 佔位 div 不佔高度，避免品牌區與導覽之間出現空隙 */
-    .sw-nav-native {{ height:0; margin:0; padding:0; line-height:0; }}
-    /* 側欄各區塊（品牌 markdown / 導覽 container / footer）之間收緊：
-       覆蓋全域 16px 的 vertical block gap，改為 2px，消除品牌區到導覽的大空隙。 */
-    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{ gap:2px !important; }}
-    /* 側欄各 element-container 也去掉多餘上下 margin */
-    [data-testid="stSidebar"] [data-testid="stElementContainer"] {{ margin:0 !important; }}
-    /* 導覽項目左右內距對齊 */
-    [data-testid="stSidebar"] [data-testid="stPageLink"] {{ margin:0 var(--s2) !important; }}
-    /* 分組標題（行政作業系統式檔案櫃分區）：小型全大寫石墨副標，
-       與 System Status footer 的區塊標題（.stt-h）同一語彙，維持側欄一致性。
-       組間拉開（上距 22px）、標題與其下第一個項目留 8px，同組內項目維持緊湊，
-       建立「組內緊湊、組間分明」的清楚節奏。 */
+    /* ===== 側欄導覽設計系統（間距 / 選中態 / 圖示 規格化）===== */
+    /* 清掉 Streamlit 容器預設邊框／hr */
+    [data-testid="stSidebar"] [data-testid="stElementContainer"],
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"],
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] hr,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {{
+      border:none !important; border-top:none !important; border-bottom:none !important;
+      box-shadow:none !important; }}
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {{
+      margin:0 !important; padding:0 !important; }}
+    /* Streamlit markdown 預設 margin-bottom:-16px 會把下一項往上拉，
+       導致分組標題與選中色塊重疊；側欄內一律取消此負 margin */
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {{
+      margin:0 !important; }}
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{ gap:0 !important; }}
+    [data-testid="stSidebar"] [data-testid="stElementContainer"] {{
+      margin:0 !important; padding:0 !important; }}
+
+    /* 品牌區塊：主標 18px / 副標 12px；底部分隔線；與選單區間距 20px */
+    .sw-brand {{
+      padding:14px 16px 0 !important; margin:0 4px !important; border:none !important; }}
+    .sw-brand .logo {{ display:flex; align-items:center; gap:8px; }}
+    .sw-brand .name {{
+      font-size:18px !important; font-weight:700; color:#F1F4F7;
+      letter-spacing:.02em; line-height:1.2; }}
+    .sw-brand .tag {{
+      color:{SIDEBAR_INK_DIM}; font-size:12px !important; font-weight:400;
+      margin-top:6px; letter-spacing:.02em; line-height:1.4; }}
+    .sw-brand-rule {{
+      height:1px; background:rgba(255,255,255,.10); margin:20px 12px 0 !important;
+      border:none !important; padding:0 !important; }}
+    .sw-nav-after-brand {{ height:20px !important; margin:0 !important; padding:0 !important;
+      line-height:0 !important; font-size:0 !important; overflow:hidden; }}
+
+    /* 分組標題：11px / 600 / 最淡次要色
+       與組內第一項間距用 padding-bottom:8px（含在標題盒內，不被選中色塊吃掉）
+       非首組 margin-top:20px + 上項 margin-bottom:4px ≈ 組間 24px */
     [data-testid="stSidebar"] .sw-navgrp {{
-      color:{SIDEBAR_INK_DIM}; font-size:.68rem; font-weight:700;
-      letter-spacing:.12em; text-transform:uppercase;
-      margin:22px 14px 8px !important; padding:0; line-height:1.2; }}
-    /* 第一個分組標題緊貼品牌分隔線下方，間距略收。 */
-    [data-testid="stSidebar"] .sw-navgrp:first-of-type {{ margin-top:14px !important; }}
+      color:{SIDEBAR_INK_DIM} !important; font-size:11px !important; font-weight:600 !important;
+      letter-spacing:.05em !important; text-transform:none !important;
+      margin:20px 14px 0 !important; padding:0 0 8px !important;
+      line-height:1.4 !important; border:none !important;
+      box-sizing:border-box !important; }}
+    [data-testid="stSidebar"] .sw-navgrp-first {{
+      margin-top:0 !important; }}
+
+    /* 導覽項目容器：貼齊側欄左緣（色條才能靠內側邊緣）；
+       同組垂直間距固定 4px（僅 margin-bottom，左右不對稱） */
+    [data-testid="stSidebar"] [data-testid="stPageLink"],
+    section[data-testid="stSidebar"] [data-testid="stPageLink"] {{
+      margin:0 10px 4px 0 !important; padding:0 !important; min-height:0 !important; }}
     [data-testid="stSidebar"] [data-testid="stPageLink"] a,
-    [data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"] {{
-      display:flex !important; align-items:center; gap:11px; height:38px; padding:0 12px !important;
-      border-radius:var(--radius-sm); color:{SIDEBAR_INK} !important; font-size:.885rem;
-      text-decoration:none; margin:0 !important; border-left:2px solid transparent;
-      transition:background .16s ease, color .16s ease; background:transparent !important; }}
+    [data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"],
+    section[data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"] {{
+      display:flex !important; align-items:center !important; gap:10px !important;
+      position:relative !important;
+      height:auto !important; min-height:0 !important;
+      padding:10px 12px 10px 15px !important; box-sizing:border-box !important;
+      line-height:1.3 !important;
+      /* 色條／背景嚴格限制在項目盒內，不向上下溢出 */
+      overflow:hidden !important;
+      /* 僅右側圓角：左側直角，方便左緣色條無縫銜接 */
+      border-radius:0 8px 8px 0 !important;
+      color:{SIDEBAR_INK} !important; font-size:14px !important; font-weight:400 !important;
+      text-decoration:none !important; margin:0 !important;
+      border:none !important; border-left:none !important;
+      background:transparent !important;
+      transition:background .15s ease, color .15s ease !important; }}
+    /* 未選中 hover：約 5% 亮藍底 */
     [data-testid="stSidebar"] [data-testid="stPageLink"] a:hover,
     [data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"]:hover {{
-      background:rgba(255,255,255,.06) !important; color:#F1F4F7 !important; }}
-    /* active：Streamlit 對目前頁面加 aria-current="page" */
+      background:rgba(94,160,219,.05) !important; color:#D5DCE5 !important; }}
+    /* 選中（aria-current 備援） */
     [data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"][aria-current="page"],
     [data-testid="stSidebar"] [data-testid="stPageLink"] a[aria-current="page"] {{
-      background:{SIDEBAR_ACTIVE} !important; color:#fff !important;
-      border-left:2px solid {PRIMARY} !important; }}
+      background:rgba(94,160,219,.14) !important;
+      color:#FFFFFF !important;
+      font-weight:500 !important; }}
+    [data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"][aria-current="page"]::before,
+    [data-testid="stSidebar"] [data-testid="stPageLink"] a[aria-current="page"]::before {{
+      content:"" !important; position:absolute !important;
+      left:0 !important; top:0 !important; bottom:0 !important;
+      width:3px !important; background:#5FA0DB !important;
+      border-radius:0 !important; }}
     [data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"][aria-current="page"] p,
-    [data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"][aria-current="page"] span {{
-      color:#fff !important; }}
-    /* 文字（label） */
+    [data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"][aria-current="page"] span,
+    [data-testid="stSidebar"] [data-testid="stPageLink"] a[aria-current="page"] p,
+    [data-testid="stSidebar"] [data-testid="stPageLink"] a[aria-current="page"] span {{
+      color:#FFFFFF !important; }}
+    /* label 文字 */
     [data-testid="stSidebar"] [data-testid="stPageLink"] p {{
-      color:inherit !important; font-size:.88rem !important; line-height:1 !important; margin:0 !important;
-      font-weight:400 !important; }}
-    /* 佔位 icon（▪）：縮小成小色點，對齊原 svg 的 18px 欄位 */
+      color:inherit !important; font-size:14px !important; line-height:1.3 !important;
+      margin:0 !important; font-weight:inherit !important; }}
+    /* 圖示：18×18、跟隨文字色（選中=白／未選中=淡藍灰） */
     [data-testid="stSidebar"] [data-testid="stPageLink"] [data-testid="stIconMaterial"],
+    [data-testid="stSidebar"] [data-testid="stPageLink"] span[data-testid="stIconMaterial"],
     [data-testid="stSidebar"] [data-testid="stPageLink"] span[role="img"] {{
-      color:{SIDEBAR_INK_DIM} !important; font-size:12px !important; width:18px; flex:0 0 18px;
-      text-align:center; opacity:.7; }}
+      color:currentColor !important; font-size:18px !important; width:18px !important;
+      height:18px !important; min-width:18px !important; flex:0 0 18px !important;
+      line-height:18px !important; text-align:center !important; opacity:1 !important;
+      display:inline-flex !important; align-items:center !important; justify-content:center !important; }}
+    [data-testid="stSidebar"] [data-testid="stPageLink"] [data-testid="stIconMaterial"] svg {{
+      width:18px !important; height:18px !important; fill:currentColor !important; }}
 
-    /* System Status footer（企業式）*/
-    .sw-side-foot {{ margin-top:auto; padding:var(--s4); border-top:1px solid rgba(255,255,255,.08); }}
-    .sw-side-foot .stt-h {{ color:{SIDEBAR_INK_DIM}; font-size:.66rem; font-weight:600;
-      letter-spacing:.12em; text-transform:uppercase; margin-bottom:10px; }}
-    .sw-side-foot .stt-row {{ margin-bottom:10px; }}
+    /* System Status 卡片：比側欄亮一階、無邊框、padding 12、圓角 8 */
+    .sw-side-foot {{
+      margin:12px 12px 16px !important; padding:12px !important;
+      border-radius:8px !important; border:none !important;
+      background:#252F3C !important; box-sizing:border-box !important; }}
+    .sw-side-foot .stt-h {{
+      color:{SIDEBAR_INK_DIM}; font-size:11px; font-weight:600;
+      letter-spacing:.08em; text-transform:uppercase;
+      margin:0 0 10px !important; line-height:1.4; }}
+    .sw-side-foot .stt-row {{ margin-bottom:8px; }}
+    .sw-side-foot .stt-row:last-child {{ margin-bottom:0; }}
     .sw-side-foot .stt-k {{ color:{SIDEBAR_INK_DIM}; font-size:.68rem; letter-spacing:.02em; }}
     .sw-side-foot .stt-v {{ color:{SIDEBAR_INK}; font-size:.78rem; margin-top:2px;
       font-variant-numeric:tabular-nums; }}
     .sw-status {{ display:inline-flex; align-items:center; gap:6px; color:{SIDEBAR_INK}; font-size:.78rem; }}
-    /* 運作中指示燈：淺綠色 + 脈動綠光（呼吸效果），表示系統 live 運作 */
     .sw-status .dot {{ width:7px; height:7px; border-radius:50%; background:#4ADE80;
       position:relative; flex:0 0 7px;
       box-shadow:0 0 0 0 #4ADE80;
@@ -573,6 +638,19 @@ def _css():
       70%  {{ box-shadow:0 0 0 6px rgba(74,222,128,0); opacity:.75; }}
       100% {{ box-shadow:0 0 0 0 rgba(74,222,128,0); opacity:1; }}
     }}
+
+    /* 舊 .sw-nav 相容（若仍有殘留 HTML） */
+    .sw-nav {{ padding:0; }}
+    .sw-nav a {{ display:flex; align-items:center; gap:10px; padding:10px 12px 10px 15px;
+      border-radius:0 8px 8px 0; color:{SIDEBAR_INK}; font-size:14px; text-decoration:none;
+      margin-bottom:4px; border:none; position:relative;
+      transition:background .15s ease, color .15s ease; }}
+    .sw-nav a:hover {{ background:rgba(94,160,219,.05); color:#D5DCE5; }}
+    .sw-nav a.active {{ background:rgba(94,160,219,.14); color:#FFFFFF; }}
+    .sw-nav a.active::before {{
+      content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:#5FA0DB; }}
+    .sw-nav a svg {{ flex:0 0 18px; width:18px; height:18px; color:currentColor; }}
+    .sw-nav-native {{ height:0; margin:0; padding:0; line-height:0; }}
 
     /* ===== 按鈕（統一高度）===== */
     .stButton>button, .stDownloadButton>button {{
@@ -808,37 +886,79 @@ def _current_page_key():
 
 def _sidebar(active_key):
     """
-    側欄 = 品牌區 + 角色感知導覽 + 使用者/登出 + System Status footer。
+    側欄 = 品牌區 + 角色感知導覽 + System Status footer。
 
-    RBAC 第一層授權（UI 導覽）：只顯示 permissions.get_role_navigation(current_role)
-    允許的頁面——不該看到的頁面在 UI 直接消失。未登入時側欄不顯示任何導覽。
-    導覽仍用 Streamlit 原生 st.page_link()（單一導覽來源），CSS class 不變。
+    導覽用 Streamlit 原生 st.page_link()（單一導覽來源）+ Material 語意圖示。
+    選中態：st.page_link 在自訂側欄不會帶 aria-current，改依 active_key
+    注入對應 href 的 CSS（與內建 router 路徑一致）。
     """
-    # --- 1) 品牌區（HTML）---
+    # --- 0) 依目前頁面注入選中態 CSS（page_link 無 aria-current）---
+    # 注意：多個 selector 時，::before / 子選擇器必須「逐一」後綴，
+    # 不可寫成 `A, B::before`（會把 ::before 的屬性誤套到 A 本身）。
+    _href = _NAV_HREF.get(active_key, "")
+    if _href:
+        _active_sels = [
+            f'[data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"][href="{_href}"]',
+        ]
+    else:
+        # 主頁 page_link 的 href 為空字串
+        _active_sels = [
+            '[data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"][href=""]',
+        ]
+    _active = ", ".join(_active_sels)
+    _active_before = ", ".join(f"{s}::before" for s in _active_sels)
+    _active_text = ", ".join(
+        f"{s} p, {s} span, {s} [data-testid='stIconMaterial']" for s in _active_sels
+    )
     st.sidebar.markdown(
         f"""
-        <div class='sw-brand'>
-          <div class='logo'>{icon('shield', 22, '#5FA0DB')}
-            <span class='name'>Fiscalint</span></div>
-          <div class='tag'>教保機構監理作業系統</div>
-        </div>
-        <div class='sw-nav-native'></div>
+        <style>
+        {_active} {{
+          background: rgba(94,160,219,.14) !important;
+          color: #FFFFFF !important;
+          font-weight: 500 !important;
+          border-radius: 0 8px 8px 0 !important;
+          border-left: none !important;
+          position: relative !important;
+        }}
+        {_active_before} {{
+          content: "" !important;
+          position: absolute !important;
+          left: 0 !important;
+          top: 0 !important;
+          bottom: 0 !important;
+          width: 3px !important;
+          background: #5FA0DB !important;
+          border-radius: 0 !important;
+        }}
+        {_active_text} {{
+          color: #FFFFFF !important;
+        }}
+        </style>
         """,
         unsafe_allow_html=True,
     )
 
-    # --- 2) 導覽（公務後台無登入、無角色）：依行政職能分組顯示所有公務頁面 ---
-    # 公務後台為政府內部系統，所有頁面對公務人員一律開放；家長端已切分為獨立
-    # 公眾查詢網（public/公開查詢.py），不在此導覽中。
-    # 分組（NAV_GROUPS）只影響呈現順序與分組標題，不新增／不刪除任何頁面。
-    # 重點：在 `with st.sidebar.container()` 區塊內，一律用「不帶 sidebar. 前綴」
-    # 的 st.markdown / st.page_link。若在此區塊內呼叫 st.sidebar.markdown，會跳出
-    # 容器、掛到側欄根層而破壞順序（先前分組標題全擠到底部的原因）。用容器內
-    # 相對 API 即可讓「分組標題 → 該組頁面」依序、成組排列。
+    # --- 1) 品牌區：主標 18px / 副標 12px；底部分隔線；與選單間距 20px ---
+    st.sidebar.markdown(
+        f"""
+        <div class="sw-brand">
+          <div class="logo">{icon('shield', 20, '#5FA0DB')}
+            <span class="name">Fiscalint</span></div>
+          <div class="tag">教保機構監理作業系統</div>
+        </div>
+        <div class="sw-brand-rule"></div>
+        <div class="sw-nav-after-brand">&nbsp;</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # --- 2) 導覽（分組標題 + page_link）---
     with st.sidebar.container():
-        for grp_title, keys in NAV_GROUPS:
+        for gi, (grp_title, keys) in enumerate(NAV_GROUPS):
+            grp_cls = "sw-navgrp sw-navgrp-first" if gi == 0 else "sw-navgrp"
             st.markdown(
-                f"<div class='sw-navgrp'>{html.escape(grp_title)}</div>",
+                f"<div class='{grp_cls}'>{html.escape(grp_title)}</div>",
                 unsafe_allow_html=True,
             )
             for key in keys:
@@ -846,36 +966,57 @@ def _sidebar(active_key):
                 if not item:
                     continue
                 _k, disp, _ic, page = item
-                # page_link 在離線測試環境（AppTest 無 page registry）會丟
-                # KeyError('url_pathname')；容錯以確保導覽失敗不中斷整頁渲染。
                 try:
-                    st.page_link(page, label=disp, icon=_NAV_EMOJI.get(key, "▪"))
+                    st.page_link(
+                        page,
+                        label=disp,
+                        icon=_NAV_MATERIAL.get(key, ":material/circle:"),
+                    )
                 except Exception:  # noqa: BLE001
                     pass
 
-    # --- 3) 目前登入角色 + 登出：已移至右上角 header（見 _render_topbar_account）---
-
-    # --- 4) System Status footer（HTML）---
+    # --- 3) System Status 卡片 ---
     st.sidebar.markdown(
         f"""
-        <div class='sw-side-foot'>
-          <div class='stt-h'>System Status</div>
-          <div class='stt-row'><div class='sw-status'><span class='dot'></span>Operational</div></div>
-          <div class='stt-row'><div class='stt-k'>Last Updated</div>
-            <div class='stt-v'>{data_updated_at()}</div></div>
+        <div class="sw-side-foot">
+          <div class="stt-h">System Status</div>
+          <div class="stt-row"><div class="sw-status"><span class="dot"></span>Operational</div></div>
+          <div class="stt-row"><div class="stt-k">Last Updated</div>
+            <div class="stt-v">{data_updated_at()}</div></div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
 
-# 導覽項目的 icon（用單色圓點 emoji 佔位，實際外觀由 CSS 控制；
-# st.page_link 的 icon 僅接受單一 emoji 或 Material 圖示，這裡用中性符號）。
-_NAV_EMOJI = {
-    "主頁": "▪", "1_case": "▪", "2_map": "▪", "5_dispatch": "▪",
-    "7_integration": "▪", "3_ai": "▪", "4_sentiment": "▪", "6_governance": "▪",
-    "8_health": "▪",
+# 導覽圖示：Streamlit Material Symbols（lucide 語意對齊）
+# LayoutDashboard / MapPin / Search / CalendarClock / Sparkles /
+# MessageSquare / Database / ShieldCheck / Activity
+_NAV_MATERIAL = {
+    "主頁": ":material/dashboard:",
+    "2_map": ":material/location_on:",
+    "1_case": ":material/search:",
+    "5_dispatch": ":material/schedule:",
+    "3_ai": ":material/auto_awesome:",
+    "4_sentiment": ":material/chat:",
+    "7_integration": ":material/database:",
+    "6_governance": ":material/verified_user:",
+    "8_health": ":material/monitoring:",
 }
+# page_link href（相對路徑，與 Streamlit multipage URL slug 對齊）
+_NAV_HREF = {
+    "主頁": "",
+    "2_map": "map",
+    "1_case": "case",
+    "5_dispatch": "dispatch",
+    "3_ai": "ai",
+    "4_sentiment": "sentiment",
+    "7_integration": "integration",
+    "6_governance": "governance",
+    "8_health": "health",
+}
+# 向後相容別名（舊測試／引用若仍用 _NAV_EMOJI）
+_NAV_EMOJI = _NAV_MATERIAL
 
 # 完整導覽清單（公務後台）：在既有 NAV 之上補入案件調查（稽查員）與資料治理
 # 權限矩陣（政府），供角色感知導覽依角色過濾。
