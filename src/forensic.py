@@ -583,7 +583,7 @@ if __name__ == "__main__":
 # 分母為 0 或缺值時，該指標標記 computable=False 而不拋例外 (R7.11，於此僅做
 # 安全保護；完整的突變/同儕排除語意由 Task 2.2 補齊)。
 # ==========================================================================
-from src.models import ForensicMetrics, Metric  # noqa: E402
+from src.models import AffordabilityCheck, ForensicMetrics, Metric  # noqa: E402
 
 # 每一指標的明確公式定義字串（R7.9）。集中定義便於介面與文件引用。
 METRIC_FORMULAS = {
@@ -724,6 +724,85 @@ def compute_expense_structure(expense, personnel, operating):
         "operating_share": round(operating_amt / total, _METRIC_PRECISION),
         "other_share": round(other_amt / total, _METRIC_PRECISION),
     }
+
+
+def personnel_affordability(row, min_wage, threshold=1.3):
+    """人事費可負擔性勾稽（R7.12/R7.13）。
+
+    ratio = (登記教職員數 × 法定最低薪資 × 12) / 決算人事費。
+    任一因子為 0 或缺值時，computation 不可計算並返回 AffordabilityCheck
+    的 computable=False；雖未命中 flag，但不中斷其餘指標。
+    """
+    if hasattr(row, "get"):
+        get = row.get
+    else:
+        get = lambda k, default=None: getattr(row, k, default)
+
+    registered_staff = _to_float(get("registered_staff", get("registered_teachers", None)))
+    wage = _to_float(min_wage)
+    personnel_expense = _to_float(get("personnel_expense"))
+
+    # 支援 row 內寫入 min_wage 與註記資料欄位的容錯語意。
+    if wage is None:
+        wage = _to_float(get("min_wage", None))
+    if wage is None:
+        # 參數 min_wage 可能為字串或 None；若 row 內明確提供則用它。
+        wage = _to_float(min_wage)
+
+    # 門檻合法範圍 [1.0, 5.0]，超出值將被夾擠。
+    thr = _to_float(threshold)
+    if thr is None:
+        thr = 1.3
+    thr = max(1.0, min(thr, 5.0))
+
+    # 任一因子為 0/缺值，回傳不可計算（不生成錯誤，且排除判定）。
+    if registered_staff is None or registered_staff == 0:
+        return AffordabilityCheck(
+            computable=False,
+            flag=False,
+            ratio=None,
+            registered_staff=None,
+            min_wage=wage,
+            personnel_expense=personnel_expense,
+            formula=PERSONNEL_AFFORDABILITY_FORMULA,
+        )
+    if wage is None or wage == 0:
+        return AffordabilityCheck(
+            computable=False,
+            flag=False,
+            ratio=None,
+            registered_staff=registered_staff,
+            min_wage=None,
+            personnel_expense=personnel_expense,
+            formula=PERSONNEL_AFFORDABILITY_FORMULA,
+        )
+    if personnel_expense is None or personnel_expense == 0:
+        return AffordabilityCheck(
+            computable=False,
+            flag=False,
+            ratio=None,
+            registered_staff=registered_staff,
+            min_wage=wage,
+            personnel_expense=None,
+            formula=PERSONNEL_AFFORDABILITY_FORMULA,
+        )
+
+    ratio = round((registered_staff * wage * 12) / personnel_expense, _METRIC_PRECISION)
+    flag = ratio > thr
+    return AffordabilityCheck(
+        computable=True,
+        flag=flag,
+        ratio=ratio,
+        registered_staff=registered_staff,
+        min_wage=wage,
+        personnel_expense=personnel_expense,
+        formula=PERSONNEL_AFFORDABILITY_FORMULA,
+    )
+
+
+PERSONNEL_AFFORDABILITY_FORMULA = (
+    "人事費可負擔性比率 = （登記教職員數 × 法定最低薪資 × 12）/ 決算人事費"
+)
 
 
 def compute_metrics(row, peer_stats=None):

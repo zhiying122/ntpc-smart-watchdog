@@ -73,6 +73,25 @@ class ForensicMetrics:
     iforest_score: float | None = None
 
 
+@dataclass
+class AffordabilityCheck:
+    """人事費可負擔性勾稽指標結果（R7.12, R7.13）。
+
+    - computable：任一必要因子為 0/缺值時 False。
+    - flag：ratio > threshold 時為 True，代表待查訊號。
+    - ratio：計算出的可負擔性比率，為 None 時不可計算。
+    """
+    computable: bool = True
+    flag: bool = False
+    ratio: float | None = None
+    registered_staff: int | float | None = None
+    min_wage: float | None = None
+    personnel_expense: float | None = None
+    formula: str = (
+        "人事費可負擔性比率 = （登記教職員數 × 法定最低薪資 × 12）/ 決算人事費"
+    )
+
+
 # --------------------------------------------------------------------------
 # 異常偵測（Anomaly Detection, R8）
 # --------------------------------------------------------------------------

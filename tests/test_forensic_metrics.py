@@ -12,8 +12,9 @@ from src.forensic import (
     METRIC_FORMULAS,
     compute_expense_structure,
     compute_metrics,
+    personnel_affordability,
 )
-from src.models import ForensicMetrics, Metric
+from src.models import AffordabilityCheck, ForensicMetrics, Metric
 
 
 def _base_row():
@@ -225,6 +226,29 @@ def test_compute_expense_structure_helper_zero_denominator():
     """compute_expense_structure：分母 0/缺值 → 空 dict（R7.11）。"""
     assert compute_expense_structure(0, 100, 200) == {}
     assert compute_expense_structure(None, 100, 200) == {}
+
+
+def test_personnel_affordability_marks_inconsistent_rows_and_safe_missing_values():
+    """人事費可負擔性勾稽：超門檻標記、缺值則不可計算且不拋例外（R7.12/R7.13）。"""
+    row = {
+        "registered_staff": 16,
+        "min_wage": 28000,
+        "personnel_expense": 200000,
+    }
+    check = personnel_affordability(row, min_wage=28000, threshold=1.3)
+    assert isinstance(check, AffordabilityCheck)
+    assert check.computable is True
+    assert check.flag is True
+    assert check.ratio > 1.3
+    assert check.registered_staff == 16
+    assert check.min_wage == 28000
+    assert check.personnel_expense == 200000
+
+    missing = personnel_affordability({"registered_staff": None, "min_wage": 28000,
+                                        "personnel_expense": None}, min_wage=28000)
+    assert missing.computable is False
+    assert missing.flag is False
+    assert missing.ratio is None
 
 
 def test_compute_expense_structure_helper_sum_is_one():
