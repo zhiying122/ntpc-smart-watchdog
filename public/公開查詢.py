@@ -1620,9 +1620,9 @@ def render_attention(park_id: str, park_name: str, district: str, row: dict | No
 
     with st.expander("這個指數怎麼算出來的（白盒公式）"):
         st.markdown(
-            "輿情關注指數＝討論量×0.30 ＋ 負面聲量×0.30 ＋ 趨勢變化×0.25 "
-            "＋ 主題敏感度×0.15，四項皆 0–100、權重固定公開，無黑箱。")
-        _weights = index.weights or {"volume": 0.30, "negative": 0.30, "trend": 0.25, "topic": 0.15}
+            "輿情關注指數＝討論量×0.20 ＋ 負面聲量×0.35 ＋ 趨勢變化×0.25 "
+            "＋ 主題敏感度×0.20，四項皆 0–100、權重固定公開，無黑箱。")
+        _weights = index.weights or {"volume": 0.20, "negative": 0.35, "trend": 0.25, "topic": 0.20}
         _subscores = index.subscores or {"volume": 0.0, "negative": 0.0, "trend": 0.0, "topic": 0.0}
         _contribs = index.contributions or {"volume": 0.0, "negative": 0.0, "trend": 0.0, "topic": 0.0}
         comp_df = pd.DataFrame({
