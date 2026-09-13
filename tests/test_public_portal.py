@@ -77,6 +77,13 @@ def test_parse_address_district_only():
     assert p.house_no == ""
 
 
+def test_sentiment_score_weights_are_information_priority_scheme():
+    assert ss.W_VOLUME == 0.20
+    assert ss.W_NEGATIVE == 0.35
+    assert ss.W_TREND == 0.25
+    assert ss.W_TOPIC == 0.20
+
+
 # ===========================================================================
 # ntpc_districts：29 區座標與比對
 # ===========================================================================
