@@ -169,15 +169,22 @@ def snapshot_meta() -> dict | None:
 
 @st.cache_data(show_spinner=False, ttl=6 * 3600)
 def fetch_live_news(park_name: str, district: str) -> list[dict]:
-    """即時抓取本機構的公開新聞（多來源聚合，快取 6 小時，隨時間自動更新）。
+    """即時抓取本機構的公開新聞＋PTT 公開討論（快取 6 小時）。
 
-    來源＝多組 Google News 查詢 + Bing News（皆公開 RSS、免金鑰、合規）。
-    僅保留與本機構精確比對成功（matched=True）的新聞，避免同名/同地區張冠
+    來源＝多組 Google/Bing News 查詢 + 媒體 RSS + PTT 親子看板（皆公開、合規）。
+    僅保留與本機構精確比對成功（matched=True）的項目，避免同名/同地區張冠
     李戴；抓不到或連線失敗回空清單（由呼叫端退回示範資料）。
-    每筆帶 source_platform（google_news/bing_news）供頁面標示來源組成。
     """
     recs = nc.fetch_all_news(park_name, district, limit=30, reference=TODAY)
-    return [r for r in recs if r.get("matched")]
+    matched = [r for r in recs if r.get("matched")]
+    # PTT 公開看板（與批次 build_sentiment 同一來源）；失敗不影響新聞結果。
+    try:
+        from src import ptt_crawler as ptt  # noqa: WPS433
+        posts = ptt.fetch_ptt(park_name, district, reference=TODAY, limit=20)
+        matched.extend(r for r in posts if r.get("matched"))
+    except Exception:  # noqa: BLE001
+        pass
+    return matched
 
 
 def attention_for(

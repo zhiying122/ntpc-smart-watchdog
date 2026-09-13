@@ -128,22 +128,35 @@ def load_public_dataset(city: str = "新北市", timeout: int = 30,
         except Exception:
             pass
 
-    # 載入評鑑等第 (penalties.csv 與 kindergartens_latest.csv)
+    # 載入評鑑結果：
+    #   1) 全國教保資訊網官方抓取（ntpc_evaluation.csv）為主；
+    #   2) 既有示範／計分 CSV 的優／良／乙等第可覆蓋同名機構（較細）。
     eval_by_key: dict[str, str] = {}
-    for p_path in [
+    _eval_paths = [
+        os.path.join(_ROOT, "data", "external", "ntpc_evaluation.csv"),
         os.path.join(_ROOT, "data", "processed", "kindergartens_latest.csv"),
         os.path.join(_ROOT, "data", "external", "penalties.csv"),
-    ]:
-        if os.path.exists(p_path):
-            try:
-                _edf = pd.read_csv(p_path)
-                for _, er in _edf.iterrows():
-                    eg = str(er.get("eval_grade", "") or "").strip()
-                    en = str(er.get("park_name", "") or "").strip()
-                    if eg and eg.lower() not in ("nan", "none", "") and en:
-                        eval_by_key[_norm_name(en)] = eg
-            except Exception:
-                pass
+    ]
+    _letter_grades = {"優", "甲", "良", "乙", "中", "丙", "待改進"}
+    for p_path in _eval_paths:
+        if not os.path.exists(p_path):
+            continue
+        try:
+            _edf = pd.read_csv(p_path)
+            for _, er in _edf.iterrows():
+                eg = str(er.get("eval_grade", "") or "").strip()
+                en = str(er.get("park_name", "") or "").strip()
+                if not eg or eg.lower() in ("nan", "none", "") or not en:
+                    continue
+                key = _norm_name(en)
+                prev = eval_by_key.get(key, "")
+                # 官方「通過」先寫入；後續若遇到更細的等第則覆蓋。
+                if key not in eval_by_key:
+                    eval_by_key[key] = eg
+                elif eg in _letter_grades and prev not in _letter_grades:
+                    eval_by_key[key] = eg
+        except Exception:
+            pass
 
     rows: list[dict] = []
     _active_vals = {"是", "true", "True", "1", "Y", "y", 1, True}

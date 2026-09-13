@@ -41,10 +41,14 @@ _GNEWS_RSS = ("https://news.google.com/rss/search?q={query}"
 _BING_RSS = ("https://www.bing.com/news/search?q={query}"
              "&format=rss&setlang=zh-tw&cc=tw")
 
-#: 多組查詢用的附加關鍵字：以「園名核心詞 + 行政區 + 關鍵字」擴大新聞覆蓋，
-#: 這些關鍵字對應家長最關心的面向（收費/評鑑/安全/師資），提高召回率。
+#: 多組查詢用的附加關鍵字：以「園名核心詞 + 行政區 + 關鍵字」擴大新聞覆蓋。
+#: 含收費／評鑑／安全，並補上裁罰／爭議／投訴／體罰／虐童等家長與監理常
+#: 見負面事件詞，避免只查到活動花絮而漏掉負面報導。
 #: 空字串代表「只有園名 + 行政區 + 幼兒園」的基本查詢。
-_QUERY_TOPICS: tuple[str, ...] = ("", "收費", "評鑑", "家長", "安全")
+_QUERY_TOPICS: tuple[str, ...] = (
+    "", "收費", "評鑑", "家長", "安全",
+    "裁罰", "爭議", "投訴", "體罰", "虐童",
+)
 
 #: 台灣主要媒體的公開 RSS 直連來源（補強層）。這些為各媒體自家提供的公開
 #: 「最新新聞」feed（免金鑰、不需登入），屬合規範圍。與 Google/Bing News
@@ -184,24 +188,36 @@ def _title_matches(title: str, core: str, district: str, park_name: str) -> bool
 
     分兩種情況：
       1. 核心詞具鑑別度（如「新莊非營利」）：標題含核心詞即視為相關。
-      2. 核心詞只是地區泛稱（如「林口」＝行政區名，多為市立園）：地區＋
-         「幼兒園」不足以確認（同區其他園、補習班都會命中），必須標題含
-         **完整園名**（park_name 或其去縣市前綴版）才算相關，否則不強綁。
-
-    比對不上者由呼叫端標為 matched=False，呈現層據此不將該則計入分級/指數，
-    或明確標示「未必為本園」。
+      2. 核心詞只是地區泛稱（如「林口」＝行政區名，多為市立園）：
+         - 標題含完整全名 → 確認相關；
+         - 或含「市立／私立 + 核心 + 幼兒園」等仍具設立別的別名 → 確認相關；
+         - 僅「林口幼兒園」這類無設立別泛稱 → 不強綁（同區多園易誤傷）。
     """
     t = title or ""
     if not core:
         return False
 
     if _is_generic_core(core, district):
-        # 地區泛稱（如「林口」）：新聞多以泛稱指涉同區任何園／補習班，無法可靠
-        # 對應到「本頁這一間」。採最保守策略——只有標題含**完整全名**
-        # （如「新北市立林口幼兒園」）時才視為確認相關；其餘一律不強綁，
-        # 寧可少綁也不冤枉特定機構（責任 AI）。
         full = (park_name or "").strip()
-        return bool(full and full in t)
+        if full and full in t:
+            return True
+        aliases: list[str] = []
+        # 市立園：允許「市立林口幼兒園」「新北市立林口幼兒園」
+        if "市立" in full and "私立" not in full:
+            aliases.extend((
+                f"市立{core}幼兒園",
+                f"新北市立{core}幼兒園",
+            ))
+        # 私立園：允許「私立OO幼兒園」「新北市私立OO幼兒園」
+        elif "私立" in full:
+            aliases.extend((
+                f"私立{core}幼兒園",
+                f"新北市私立{core}幼兒園",
+            ))
+        # 去「新北市」前綴的全名（常見標題寫法）
+        if full.startswith("新北市") and len(full) > 3:
+            aliases.append(full[3:])
+        return any(a and len(a) >= 5 and a in t for a in aliases)
 
     # 具鑑別度的核心詞：含核心詞即相關。
     return core in t
@@ -423,12 +439,13 @@ def fetch_all_news(park_name: str, district: str = "", *, timeout: float = 8.0,
             _GNEWS_RSS, q, park_name, district, platform="google_news",
             timeout=timeout, limit=per_source_limit, reference=ref))
 
-    # Bing News（基本查詢，互補來源）。
-    q_bing = build_query(park_name, district)
-    if q_bing:
-        tasks.append(lambda: _fetch_rss(
-            _BING_RSS, q_bing, park_name, district, platform="bing_news",
-            timeout=timeout, limit=per_source_limit, reference=ref))
+    # Bing News（基本查詢 + 少數高召回負面主題，互補 Google）。
+    for topic in ("", "裁罰", "爭議", "虐童"):
+        q_bing = build_query(park_name, district, extra=topic)
+        if q_bing:
+            tasks.append(lambda q=q_bing: _fetch_rss(
+                _BING_RSS, q, park_name, district, platform="bing_news",
+                timeout=timeout, limit=per_source_limit, reference=ref))
 
     # 台灣主要媒體 RSS 直連（第一手來源，全站 feed 以園名比對過濾）。
     for media_name, media_url in _MEDIA_RSS:

@@ -61,7 +61,20 @@ def evaluation_status(district: str, grade: object) -> tuple[str, str]:
     """
     g = "" if grade is None else str(grade).strip()
     if g and g.lower() not in ("nan", "none", ""):
-        return STATUS_EVALUATED, f"基礎評鑑通過（評鑑等第：{g} 等，教保活動、環境設備與安全維護全數合格）"
+        # 全國教保資訊網基礎評鑑多為「通過／部分通過」；舊資料偶有優／良／乙等第。
+        if g in ("通過", "全數通過", "合格"):
+            return STATUS_EVALUATED, (
+                "基礎評鑑通過（教保活動、環境設備與安全維護等指標經主管機關查核通過）"
+            )
+        if g in ("部分通過", "部分指標通過"):
+            return STATUS_EVALUATED, (
+                "基礎評鑑部分指標通過（已接受評鑑；請以主管機關公告之評鑑結果為準）"
+            )
+        if g in ("優", "甲", "良", "乙", "中", "丙", "待改進"):
+            return STATUS_EVALUATED, (
+                f"基礎評鑑通過（評鑑等第：{g} 等，教保活動、環境設備與安全維護全數合格）"
+            )
+        return STATUS_EVALUATED, f"已接受評鑑（結果：{g}）"
 
     year = scheduled_year_for(district)
     if year is not None:

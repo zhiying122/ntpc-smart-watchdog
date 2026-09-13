@@ -141,6 +141,21 @@ def test_classify_sentiment_neg_pos_neu():
     assert sw.classify_sentiment("今天天氣普通") == "neu"
 
 
+def test_classify_sentiment_hard_negatives():
+    # 新聞常見硬性負面詞不得被誤判為中性（先前「虐童」漏詞典）。
+    assert sw.classify_sentiment("市立林口幼兒園驚傳虐童疑雲") == "neg"
+    assert sw.classify_sentiment("園方體罰幼童遭裁罰") == "neg"
+    assert "safety" in sw.classify_topics("驚傳虐童疑雲與監視器調不到畫面")
+
+
+def test_title_match_generic_core_requires_full_name():
+    # 無設立別的泛稱「林口幼兒園」不可強綁市立園（同區多園易誤傷）。
+    assert not nc._title_matches("林口幼兒園驚傳虐童", "林口", "林口區", "新北市立林口幼兒園")
+    # 完整全名或「市立＋核心」別名可確認相關。
+    assert nc._title_matches("新北市立林口幼兒園辦親子活動", "林口", "林口區", "新北市立林口幼兒園")
+    assert nc._title_matches("市立林口幼兒園驚傳虐童", "林口", "林口區", "新北市立林口幼兒園")
+
+
 def test_empty_items_summary_is_none_level():
     s = sw.summarize_attention([], reference=REF)
     assert s.level == sw.LEVEL_NONE
@@ -232,6 +247,19 @@ def test_eval_status_with_grade():
     assert "乙" in text
 
 
+def test_eval_status_official_pass():
+    status, text = evc.evaluation_status("板橋區", "通過")
+    assert status == evc.STATUS_EVALUATED
+    assert "等第" not in text
+    assert "通過" in text
+
+
+def test_eval_status_partial_pass():
+    status, text = evc.evaluation_status("板橋區", "部分通過")
+    assert status == evc.STATUS_EVALUATED
+    assert "部分" in text
+
+
 def test_eval_status_scheduled_district():
     status, text = evc.evaluation_status("樹林區", None)
     assert status == evc.STATUS_PENDING
@@ -268,10 +296,11 @@ def test_title_match_distinctive_core():
     assert nc._title_matches("新莊非營利幼兒園辦活動", "新莊非營利", "新莊區", "新北市新莊非營利幼兒園")
 
 
-def test_title_match_generic_core_requires_full_name():
-    # 地區泛稱（林口）：僅「林口幼兒園」不足以確認，需完整全名，避免張冠李戴。
-    assert not nc._title_matches("林口幼兒園驚傳虐童", "林口", "林口區", "新北市立林口幼兒園")
-    assert nc._title_matches("新北市立林口幼兒園辦親子活動", "林口", "林口區", "新北市立林口幼兒園")
+def test_title_match_generic_core_requires_distinctive_alias():
+    # 舊別名測試保留於上方 test_title_match_generic_core_requires_full_name。
+    assert nc.name_core("新北市私立林口幼兒園") == "林口"
+    assert nc._title_matches(
+        "私立林口幼兒園收費爭議", "林口", "林口區", "新北市私立林口幼兒園")
 
 
 def test_build_query_binds_core_and_district():
