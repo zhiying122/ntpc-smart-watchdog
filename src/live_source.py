@@ -157,6 +157,24 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _parse_iso(ts: str | None) -> datetime:
+    """把 ISO 時間字串穩健解析為帶時區的 datetime；無法解析或為空回最小時間。
+
+    _read_cache 產生的 mtime 皆為帶 tz 的 ISO；此處另做防禦：無時區者補 UTC，
+    解析失敗者回 datetime.min(UTC)，確保比較時不因格式差異或 naive/aware 混用而
+    誤判或拋例外（供 _best_offline 挑較新離線資料用）。
+    """
+    if not ts:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    try:
+        dt = datetime.fromisoformat(ts)
+    except (ValueError, TypeError):
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def _best_offline(cache_path: str,
                   snapshot_path: str | None) -> tuple[Any, str | None, str]:
     """在本地快取與版控快照之間，挑「最新一份」可用資料作為離線備援。
@@ -169,8 +187,9 @@ def _best_offline(cache_path: str,
     snap_data, snap_mtime = (_read_cache(snapshot_path)
                              if snapshot_path else (None, None))
     if cache_data is not None and snap_data is not None:
-        # 兩者都有 → 取 mtime 較新的一份。
-        if (snap_mtime or "") > (cache_mtime or ""):
+        # 兩者都有 → 取 mtime 較新的一份。用 datetime 解析後比較（而非字串
+        # 直接比大小），避免時區/格式差異（有無 +00:00）造成字典序誤判。
+        if _parse_iso(snap_mtime) > _parse_iso(cache_mtime):
             return snap_data, snap_mtime, "snapshot"
         return cache_data, cache_mtime, "cache"
     if snap_data is not None:

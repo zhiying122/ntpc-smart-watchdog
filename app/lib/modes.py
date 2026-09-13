@@ -307,8 +307,9 @@ _FORBIDDEN_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^score_"),        # 所有 score_* 分項
     re.compile(r"_score$"),        # 任何以 _score 結尾（如 financial_score）
     re.compile(r"^score$"),        # 單獨 score
-    re.compile(r"^risk_"),         # 所有 risk_* 內部風險欄位
-    re.compile(r"_risk$"),         # 任何以 _risk 結尾
+    re.compile(r"risk"),           # 任何含 risk 子字串（risk_*、eng_risk_*、_risk）
+    re.compile(r"^eng_"),          # 白盒引擎衍生欄位（eng_risk_*、eng_anomaly_* 等）
+    re.compile(r"anomaly"),        # 異常偵測旗標（eng_anomaly_*，屬內部研判）
     re.compile(r"rank"),           # 排名/排序衍生（rank, ranking, risk_rank...）
     re.compile(r"percentile"),     # 百分位（相對分級衍生，R10.6）
 )

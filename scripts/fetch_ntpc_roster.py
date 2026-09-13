@@ -39,6 +39,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from src.geocode import DISTRICT_CENTER  # noqa: E402
+from src.risk_score import score  # noqa: E402  # 白盒單一計分來源
 
 # 新北市政府資料開放平台：公私立立案幼兒園資料（CSV 直接下載端點）
 NTPC_ROSTER_URL = (
@@ -186,15 +187,21 @@ def build() -> pd.DataFrame:
                 "penalty_count": srow.get("penalty_count", 0),
             })
         elif prow is not None:
-            # 命中真實裁罰名單但無財報：套用 behavioral 行為評分檔計算真實風險分
+            # 命中真實裁罰名單但無財報：套用 behavioral 行為評分檔。
+            # 【單一計分來源】裁罰基底分與總分/等級一律走白盒 score()（behavioral
+            # 三分項：裁罰0.50/評鑑0.30/輿情0.20），不在此手算，確保未來調整
+            # PROFILE_WEIGHTS 時本路徑自動同步、可解釋性一致（避免雙套計分）。
             lat, lng = _roster_coord(name, district)
             pstatus = str(prow.get("status", "") or "")
             is_revoked = "廢止" in pstatus
-            # 廢止許可屬情節重大(95分)，一般公告裁罰(65分)
+            # 裁罰嚴重度：廢止許可屬情節重大(95)，一般公告裁罰(65)；次數為代理。
             p_score = 95.0 if is_revoked else 65.0
             p_cnt = 3 if is_revoked else 1
-            # 行為檔白盒權重：裁罰 50% + 評鑑 30%(中性30) + 輿情 20%(中性20)
-            b_total = round(0.50 * p_score + 0.30 * 30.0 + 0.20 * 20.0, 1)
+            breakdown = score(
+                {"score_penalty": p_score},
+                profile="behavioral",
+            )
+            b_total = breakdown.total
             b_level = "高" if b_total >= 60 else ("中" if b_total >= 35 else "低")
             rows.append({
                 "park_id": f"P{i:04d}",

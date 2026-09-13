@@ -25,6 +25,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import html as _html
 import os
 import re
@@ -134,7 +135,12 @@ def fetch_all() -> pd.DataFrame:
     for page in range(MAX_PAGES):
         rows = _parse_page(html)
         all_rows.extend(rows)
-        sig = tuple(r["park_name"] for r in rows)
+        # 循環偵測簽名：用整頁「所有欄位」的雜湊，而非僅園名序列。
+        # （僅用園名易誤判：不同頁若園名序列碰巧相同會被當成循環而提早中止、
+        #   漏抓後續頁。改用完整內容雜湊，唯有真正翻回同一頁才會命中。）
+        sig = hashlib.md5(
+            repr([sorted(r.items()) for r in rows]).encode("utf-8")
+        ).hexdigest()
         print(f"  第 {page + 1} 頁：{len(rows)} 筆")
         # 是否有「下一頁」（未 disabled）
         has_next = re.search(r'id="PageControl1_lbNextPage"[^>]*__doPostBack', html)

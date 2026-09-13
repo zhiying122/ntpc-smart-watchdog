@@ -376,8 +376,11 @@ _ANSWERABLE_FIELDS = {
     "score_financial": ("財務異常分項", "鑑識會計財務指標"),
     "score_penalty": ("裁罰分項", "全國教保資訊網裁罰紀錄"),
     "score_eval": ("評鑑分項", "教保機構評鑑結果"),
-    # 註：輿情分項（score_sentiment）之資料源尚未接入，本版本不納入計分，
-    # 故不列於可回答欄位，避免暗示系統擁有輿情分數。接入後再加回。
+    # 輿情分項（score_sentiment）已接入真實公開新聞爬蟲（scripts/build_sentiment.py
+    # → data/processed/sentiment.csv，白盒規則式 NLP 判負面度、每筆附原文連結可
+    # 追溯），故正式納入計分（WEIGHTS sentiment 0.10）並列為可回答欄位。查無新聞
+    # 之機構以缺值中性處理、不放大風險（責任 AI）。
+    "score_sentiment": ("輿情分項", "公開新聞／PTT 負面度（每筆附原文連結）"),
     "expense_income_ratio": ("收支比", "公校決算書／機構財報"),
     "benford_mad": ("班佛偏離度(MAD)", "班佛定律檢定（首位數分布）"),
     "beneish_score": ("Beneish 操縱分", "Beneish M-Score 模型"),

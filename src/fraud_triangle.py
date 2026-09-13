@@ -75,7 +75,11 @@ def assess(entity) -> FraudTriangleResult:
       fund_continuity_score, score_penalty, score_sentiment。
     缺值一律以中性 0 處理，不放大風險（責任 AI）。
     """
-    get = entity.get if hasattr(entity, "get") else (lambda k, d=None: d)
+    # 統一以 .get 取值：dict / pandas.Series 走原生 .get；其餘物件退回
+    # getattr（讀屬性），確保 docstring 宣稱的「dict 或 Series 或屬性物件」
+    # 皆能正確取值，而非靜默回預設致三構面全歸零。
+    get = entity.get if hasattr(entity, "get") else (
+        lambda k, d=None: getattr(entity, k, d))
 
     # ---------- Pressure 壓力：財務困境為主 ----------
     altman = _z(get("altman_score"))

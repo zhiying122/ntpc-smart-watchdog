@@ -224,12 +224,11 @@ def get_allowed_fields(role: str) -> set[str]:
 #:
 #: 註：本集合列出「所有可能出現在風險資料中、家長絕不可見」的欄位，作為授權
 #: 對照與防禦性清單，涵蓋範圍**刻意大於**目前 live 契約檔的實際欄位。
-#: 特別是 `score_sentiment`（輿情分項）——目前輿情尚未接入計分（WEIGHTS 中
-#: 權重為 0，見 src/risk_score.py），契約檔 kindergartens_latest.csv / .csv
-#: **實際並無此欄**。此處仍列入，是為了「輿情日後接上時，家長投影已預先擋住」
-#: 的前瞻防禦；因家長投影採白名單為主、黑名單為輔，即使此欄不存在也無副作用
-#: （不會誤刪、不會 KeyError）。若要對照 live 契約真實欄位，請以 risk_score.py::
-#: main() 的 `cols` 為準。
+#: 特別是 `score_sentiment`（輿情分項）——輿情已接入真實新聞/PTT 爬蟲並計入
+#: 計分（WEIGHTS sentiment 0.10，見 src/risk_score.py）。無論該欄是否出現在
+#: 特定契約檔，皆列入本黑名單，確保家長投影一律擋住風險相關分項；因家長投影
+#: 採白名單為主、黑名單為輔，即使某檔無此欄也無副作用（不會誤刪、不會 KeyError）。
+#: 若要對照 live 契約真實欄位，請以 risk_score.py::main() 的 `cols` 為準。
 _FULL_RISK_FIELDS: frozenset[str] = frozenset({
     "risk_total", "risk_level", "risk_level_abs",
     "score_financial", "score_penalty", "score_eval",

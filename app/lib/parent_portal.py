@@ -62,22 +62,29 @@ _FORBIDDEN_EXACT: frozenset[str] = frozenset({
     "risk_rank",
     "risk_percentile",
 })
-_FORBIDDEN_PREFIXES: tuple[str, ...] = ("score_", "risk_")
+_FORBIDDEN_PREFIXES: tuple[str, ...] = ("score_", "risk_", "eng_")
+#: 子字串規則：只要欄名任一處含這些片語，即視為內部風險/研判欄位而移除。
+#: 涵蓋白盒引擎衍生欄位（eng_risk_*、eng_anomaly_*）與任何含 risk 的變體，
+#: 避免僅靠前綴而漏掉 eng_risk_total、eng_risk_level 等實質風險總分/等級外洩。
+_FORBIDDEN_SUBSTRINGS: tuple[str, ...] = ("risk", "anomaly", "rank", "percentile")
 
 
 def is_risk_field(column: str) -> bool:
     """判斷某欄位是否為「內部風險資訊」而必須自家長入口移除（R1.5, R6.6）。
 
-    涵蓋精確欄位名（risk_total、risk_level、risk_level_abs 等）與前綴
-    （score_*、risk_*）。此判定為白名單投影的反向守門，確保沒有任何足以
-    還原風險分數／等級的欄位外洩。
+    涵蓋精確欄位名（risk_total、risk_level、risk_level_abs 等）、前綴
+    （score_*、risk_*、eng_*）與子字串（risk/anomaly/rank/percentile）。
+    此判定為白名單投影的反向守門，確保沒有任何足以還原風險分數／等級的欄位
+    外洩——包含白盒引擎衍生的 eng_risk_total / eng_risk_level / eng_anomaly_*。
     """
     if not isinstance(column, str):
         return False
     key = column.strip().lower()
     if key in _FORBIDDEN_EXACT:
         return True
-    return any(key.startswith(p) for p in _FORBIDDEN_PREFIXES)
+    if any(key.startswith(p) for p in _FORBIDDEN_PREFIXES):
+        return True
+    return any(s in key for s in _FORBIDDEN_SUBSTRINGS)
 
 
 def strip_risk_fields(record: Mapping[str, Any]) -> dict[str, Any]:

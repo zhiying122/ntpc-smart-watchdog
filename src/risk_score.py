@@ -268,7 +268,7 @@ NOT_ILLEGALITY_NOTICE = (
 
 # ---------- 雙評分檔（R26：財務鑑識園 vs 行為監測園）----------
 # 有獨立財務決算 → forensic（四分項）；無獨立財報（如國小附設幼兒園）→ behavioral
-# （合規/評鑑/輿情三分項，將財務 0.40 權重按學理依據重分配）。
+# （合規/評鑑/輿情三分項，將 forensic 的財務 0.45 權重按學理依據重分配）。
 # 學理：Fiene 合規計分序位化、HHS/ACF 差異化監測、RBI 風險基礎稽查、
 # ACF 2024 評鑑品質—違規負相關實證。詳見 requirements.md R26。
 PROFILE_FORENSIC = "forensic"
@@ -355,7 +355,7 @@ def score(entity, weights=None, confidence=None, profile=None):
         單一機構的評分輸入，需可取得各分項原始分（見下）或其計算來源欄位。
     weights : dict | None
         分項顯示權重。預設 None → 依評分檔（profile）自動選取 PROFILE_WEIGHTS：
-        forensic {財務0.40,裁罰0.30,評鑑0.15,輿情0.15}、
+        forensic {財務0.45,裁罰0.30,評鑑0.15,輿情0.10}、
         behavioral {裁罰0.50,評鑑0.30,輿情0.20}（財務不計入）。
         顯式傳入時以傳入者為準（向後相容既有呼叫）。
     confidence : float | DataConfidence | None
@@ -394,9 +394,9 @@ def score(entity, weights=None, confidence=None, profile=None):
     get = entity.get if hasattr(entity, "get") else (lambda k, d=None: entity[k] if k in entity else d)
 
     # 評分檔判定（R26.1）。向後相容策略：
-    #   - 未指定 profile 且 entity 未帶 scoring_profile → 沿用既有三分項 WEIGHTS
-    #     （financial 0.50 + penalty 0.34 + eval 0.16），評分檔標為 forensic，
-    #     不啟用四分項/輿情，確保既有呼叫與契約 build() 行為不變。
+    #   - 未指定 profile 且 entity 未帶 scoring_profile → 沿用預設 WEIGHTS
+    #     （財務0.45 + 裁罰0.30 + 評鑑0.15 + 輿情0.10，四分項制），評分檔標為
+    #     forensic，確保既有呼叫與契約 build() 行為一致。
     #   - 明確指定 profile，或 entity 帶合法 scoring_profile → 啟用雙評分檔
     #     PROFILE_WEIGHTS（forensic 四分項；behavioral 三分項無財務）。
     explicit_profile = profile if profile in (PROFILE_FORENSIC, PROFILE_BEHAVIORAL) else None
@@ -678,8 +678,9 @@ def build(df):
     # 風險總分：走白盒 score()（單一計分來源），確保標頭、排名、地圖、雷達圖
     # 全系統同源一致（避免「標頭總分 vs 雷達加總對不上」的可解釋性破口）。
     # score() 依每列 scoring_profile 自動套用權重：forensic 四分項
-    # （財務0.40/裁罰0.30/評鑑0.15/輿情0.15）、behavioral 三分項（裁罰0.50/
-    # 評鑑0.30/輿情0.20，無財務）。輿情尚未接入 → 缺值以中性處理不放大（R10.5）。
+    # （財務0.45/裁罰0.30/評鑑0.15/輿情0.10）、behavioral 三分項（裁罰0.50/
+    # 評鑑0.30/輿情0.20，無財務）。輿情已接入真實爬蟲（sentiment.csv），
+    # 查無訊號者缺值以中性處理不放大（R10.5）。
     df["risk_total"] = df.apply(lambda r: score(r).total, axis=1).round(1)
     # 主用百分位相對分級（確保有高風險園、符合「稽查優先序」目的）。
     # 【公平性】分機構類型各自做百分位（見 risk_level_by_group）：避免非營利園

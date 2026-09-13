@@ -121,9 +121,14 @@ def run(online=True):
         reader = list(csv.DictReader(f))
 
     for i, r in enumerate(reader):
-        name = r["park_name"]
-        addr = r["address"]
+        # 以 .get 取關鍵欄位並跳過缺園名/地址者，避免 addresses.csv 欄名不符
+        # （如 BOM、缺欄）時整支腳本 KeyError 中斷（誠實跳過而非崩潰）。
+        name = (r.get("park_name") or "").strip()
+        addr = (r.get("address") or "").strip()
         district = r.get("district", "")
+        if not name or not addr:
+            print(f"  [{i+1}/{len(reader)}] 略過：缺園名或地址")
+            continue
         coord = None
         if online:
             coord = geocode_one(addr, cache, name=name, district=district)
